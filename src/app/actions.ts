@@ -57,10 +57,7 @@ export async function getAiResponse(
   let nativeScript = "";
   let isError = false;
 
-  console.log("--- DEBUG: getAiResponse called ---");
-  console.log("Persona:", persona);
-  console.log("Full History Received:", JSON.stringify(history, null, 2));
-
+  const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
 
   try {
     const safetyResult = await checkSafetyAndTone({
@@ -73,21 +70,15 @@ export async function getAiResponse(
     if (!isSafe) {
         responseContent = safetyResult.safeResponse;
     } else {
-        const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
-        
-        console.log("--- DEBUG: Calling conversationalResponse with: ---");
-        console.log("Persona:", persona);
-        console.log("History for AI:", JSON.stringify(historyWithoutDisplay, null, 2));
-
         const result = await conversationalResponse({
             history: historyWithoutDisplay,
             persona,
         });
         responseContent = result.response;
     }
-  } catch (error) {
-    console.error("--- DEBUG: Error in getAiResponse ---", error);
-    responseContent = "I'm having a little trouble right now. Please try again in a moment.";
+  } catch (error: any) {
+    // Return debug information on error
+    responseContent = `Error debugging info:\n---\nPersona: ${persona}\n---\nHistory:\n${JSON.stringify(historyWithoutDisplay, null, 2)}`;
     isError = true;
   }
   
