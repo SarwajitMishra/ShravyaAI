@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, Code, Brain, Lightbulb, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2 } from "lucide-react";
+import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2 } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -181,7 +181,6 @@ function ChatLayout() {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
-
 
         {isLoggedIn && (
           <Sidebar>
