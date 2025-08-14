@@ -32,6 +32,7 @@ import { Sidebar, SidebarProvider, SidebarTrigger, SidebarContent, SidebarMenu, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { LoginPrompt } from "@/components/login-prompt";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
@@ -108,7 +109,8 @@ export function ChatPage() {
     if (!content) return;
     
     if(!isLoggedIn) {
-        setIsLoggedIn(true);
+        // This is a guest user. We don't automatically log them in here.
+        // The useChatHistory hook will handle temporary state.
     }
 
     sendMessage(content, activePersona);
@@ -122,6 +124,10 @@ export function ChatPage() {
   
   const handleLogin = () => {
     setIsLoggedIn(true);
+    toast({
+        title: "Logged In",
+        description: "Your chat history is now being saved.",
+    });
   }
 
   const handleRenameClick = (conversationId: string, currentTitle: string) => {
@@ -150,7 +156,7 @@ export function ChatPage() {
                 <AlertDialogTitle>Change Persona?</AlertDialogTitle>
                 <AlertDialogDescription>
                     Changing the persona will start a new conversation and save the current one. Are you sure you want to continue?
-                </AlertDialogDescription>
+                </Description>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                 <AlertDialogCancel onClick={() => setSelectedPersona(null)}>Cancel</AlertDialogCancel>
@@ -281,9 +287,13 @@ export function ChatPage() {
                             <h2 className="text-2xl font-bold mb-8">How can I help you today?</h2>
                         </div>
                     ) : (
-                        activeConversation?.messages.map((message) => (
+                        activeConversation?.messages.map((message) => 
+                           message.role === 'system' ? (
+                            <LoginPrompt key={message.id} onLogin={handleLogin} />
+                           ) : (
                             <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message.id)} onScriptToggle={() => toggleScript(message.id)} />
-                        ))
+                           )
+                        )
                     )}
                     {isPending && <ThinkingBubble />}
                 </div>

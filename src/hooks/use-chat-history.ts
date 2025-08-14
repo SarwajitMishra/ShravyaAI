@@ -6,6 +6,7 @@ import type { Message, Persona, QuickChipAction, Conversation } from '@/lib/type
 import { getAiResponse, getQuickResponse, getInitialGreeting } from '@/app/actions';
 
 const initialPersona: Persona = 'Friend';
+const LOGIN_PROMPT_INTERVAL = 3; // Show prompt after every 3 user messages for guests
 
 export function useChatHistory(isLoggedIn: boolean) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -106,9 +107,7 @@ export function useChatHistory(isLoggedIn: boolean) {
                 startNewConversation(savedPersona);
             }
         } else {
-            const tempConversation = createTemporaryConversation(initialPersona);
-            setConversations([tempConversation]);
-            setActiveConversationIdState(tempConversation.id);
+            startNewConversation(initialPersona);
         }
         setIsInitialLoad(false);
     }
@@ -150,7 +149,7 @@ export function useChatHistory(isLoggedIn: boolean) {
         title: `[${persona}] - ${content.substring(0, 30)}...`,
         persona: persona,
         timestamp: Date.now(),
-        messages: currentConversation ? currentConversation.messages : [],
+        messages: currentConversation ? currentConversation.messages.filter(m => m.role !== 'system') : [],
         isArchived: false,
       };
       
@@ -160,9 +159,8 @@ export function useChatHistory(isLoggedIn: boolean) {
       currentConversation = newConversation;
     }
   
-    // Add the user message
-    const updatedMessages = currentConversation ? [...currentConversation.messages, newUserMessage] : [newUserMessage];
-    const newTitle = (currentConversation?.messages.length === 0 || (currentConversation?.messages.length === 1 && currentConversation.messages[0].id === '0')) 
+    const updatedMessages = currentConversation ? [...currentConversation.messages.filter(m => m.role !== 'system'), newUserMessage] : [newUserMessage];
+    const newTitle = (currentConversation?.messages.length <= 1) 
       ? `[${persona}] - ${content.substring(0, 30)}...` 
       : currentConversation?.title;
   
@@ -188,11 +186,25 @@ export function useChatHistory(isLoggedIn: boolean) {
         isError: isError,
       };
       
+      let finalMessages: Message[] = [...updatedMessages, newAiMessage];
+
+      if (!isLoggedIn) {
+        const userMessagesCount = finalMessages.filter(m => m.role === 'user').length;
+        if (userMessagesCount > 0 && userMessagesCount % LOGIN_PROMPT_INTERVAL === 0) {
+            const loginPromptMessage: Message = {
+                id: 'login-prompt-' + userMessagesCount,
+                role: 'system',
+                content: 'login-prompt',
+            };
+            finalMessages.push(loginPromptMessage);
+        }
+      }
+
       setConversations(prev =>
-        prev.map(c => (c.id === (currentConversation?.id || activeConversationId) ? {...c, messages: [...updatedMessages, newAiMessage]} : c))
+        prev.map(c => (c.id === (currentConversation?.id || activeConversationId) ? {...c, messages: finalMessages} : c))
       );
     });
-  }, [activeConversationId, conversations, isLoggedIn]);
+  }, [activeConversationId, conversations, isLoggedIn, updateActiveConversation]);
   
   const regenerateResponse = useCallback((messageId: string) => {
     const conversation = conversations.find(c => c.id === activeConversationId);
