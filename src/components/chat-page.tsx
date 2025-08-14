@@ -173,13 +173,14 @@ export function ChatPage() {
         <div className="flex flex-col h-screen w-full">
             <header className="p-4 border-b border-border/50 sticky top-0 z-10 bg-background/50 backdrop-blur-sm">
                 <div className="flex justify-between items-center max-w-7xl mx-auto">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-4">
                         {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
-                         <DropdownMenu>
+                        <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
+                        <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="pl-0">
-                                    <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
-                                    <ChevronDown className="h-4 w-4 ml-1" />
+                                <Button variant="outline">
+                                    <span>{activePersona}</span>
+                                    <ChevronDown className="h-4 w-4 ml-2" />
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
