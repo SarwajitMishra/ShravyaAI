@@ -44,11 +44,20 @@ export function useChatHistory(isLoggedIn: boolean) {
         isArchived: false,
       };
 
-      setConversations(prev => [...prev, newConversation].sort((a, b) => b.timestamp - a.timestamp));
-      setActiveConversationIdState(newConversation.id);
+      if (isLoggedIn) {
+        setConversations(prev => [...prev, newConversation].sort((a, b) => b.timestamp - a.timestamp));
+      } else {
+        const existingConvoForPersona = conversations.find(c => c.persona === persona);
+        if (existingConvoForPersona) {
+          setActiveConversationIdState(existingConvoForPersona.id);
+        } else {
+          setConversations(prev => [...prev, newConversation].sort((a,b) => b.timestamp - a.timestamp));
+          setActiveConversationIdState(newConversation.id);
+        }
+      }
       setActivePersona(persona);
     });
-  }, []);
+  }, [isLoggedIn, conversations]);
   
   useEffect(() => {
     if (isInitialLoad) {
