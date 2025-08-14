@@ -47,13 +47,16 @@ function useSidebar() {
   return context
 }
 
-const SidebarProvider: React.FC<React.PropsWithChildren<{
-  defaultOpen?: boolean
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  className?: string
-  style?: React.CSSProperties
-}>> = ({
+interface SidebarProviderProps extends React.PropsWithChildren {
+  defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+
+const SidebarProvider: React.FC<SidebarProviderProps> = ({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,

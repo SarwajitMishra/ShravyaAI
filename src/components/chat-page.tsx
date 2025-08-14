@@ -28,7 +28,7 @@ import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
 import type { Persona } from "@/lib/types";
-import { Sidebar, SidebarProvider, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
+import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -43,8 +43,7 @@ const suggestionChips = [
     { text: "Make a plan" },
 ];
 
-
-export function ChatPage() {
+function ChatLayout() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const { toast } = useToast();
 
@@ -148,7 +147,6 @@ export function ChatPage() {
   const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0 || (activeConversation.messages.length === 1 && activeConversation.messages[0].role === 'assistant');
 
   return (
-    <SidebarProvider>
     <div className="flex h-screen w-full bg-background">
         <AlertDialog open={isPersonaChangeDialogOpen} onOpenChange={setIsPersonaChangeDialogOpen}>
             <AlertDialogContent>
@@ -156,7 +154,7 @@ export function ChatPage() {
                 <AlertDialogTitle>Change Persona?</AlertDialogTitle>
                 <AlertDialogDescription>
                     Changing the persona will start a new conversation and save the current one. Are you sure you want to continue?
-                </Description>
+                </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                 <AlertDialogCancel onClick={() => setSelectedPersona(null)}>Cancel</AlertDialogCancel>
@@ -351,6 +349,13 @@ export function ChatPage() {
             </footer>
         </div>
     </div>
-    </SidebarProvider>
   );
+}
+
+export function ChatPage() {
+    return (
+        <SidebarProvider>
+            <ChatLayout />
+        </SidebarProvider>
+    )
 }
