@@ -41,6 +41,10 @@ Your current persona is: {{{persona}}}.
   
 Your primary goal is to respond in the same language and style as the user's last message. Analyze the user's input to determine the language and mimic it in your reply. Avoid mixing different languages unless it's a natural part of the user's expression (e.g., using English words within a Hinglish sentence is acceptable, but mixing entire sentences from different languages is not).
 
+If the conversation history contains only an assistant greeting and a single user message, this is the beginning of the conversation. Respond directly to the user's message in your given persona.
+
+Otherwise, analyze the entire chat history to provide a contextually relevant response.
+
 Conversation History:
   {{#each history}}
   {{#if this.role}}
