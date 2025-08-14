@@ -69,8 +69,10 @@ export async function getAiResponse(
         responseContent = safetyResult.safeResponse;
     } else {
         const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
+        const userMessagesCount = historyWithoutDisplay.filter(m => m.role === 'user').length;
+        
         // If there's only one user message (the first one), use a simpler response flow.
-        if (historyWithoutDisplay.filter(m => m.role === 'user').length <= 1) {
+        if (userMessagesCount <= 1) {
             const result = await personaBasedResponse({
                 prompt: latestUserMessage.content,
                 persona,
