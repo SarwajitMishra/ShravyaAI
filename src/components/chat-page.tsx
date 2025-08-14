@@ -33,14 +33,10 @@ import { Sidebar, SidebarProvider, SidebarTrigger, SidebarContent, SidebarMenu, 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
 const suggestionChips = [
-    { icon: <Lightbulb className="w-4 h-4" />, text: "Surprise me" },
-    { icon: <Pencil className="w-4 h-4" />, text: "Summarize text" },
-    { icon: <Sparkles className="w-4 h-4" />, text: "Analyze images" },
-    { icon: <ListOrdered className="w-4 h-4" />, text: "Make a plan" },
-    { icon: <Brain className="w-4 h-4" />, text: "Brainstorm" },
-    { icon: <BookOpen className="w-4 h-4" />, text: "Get advice" },
-    { icon: <Code className="w-4 h-4" />, text: "Code" },
-    { icon: <Pencil className="w-4 h-4" />, text: "Help me write" },
+    { text: "Surprise me" },
+    { text: "Summarize text" },
+    { text: "Analyze images" },
+    { text: "Make a plan" },
 ];
 
 
@@ -117,6 +113,8 @@ export function ChatPage() {
   const handleLogin = () => {
     setIsLoggedIn(true);
   }
+
+  const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0 || (activeConversation.messages.length === 1 && activeConversation.messages[0].role === 'assistant');
 
   return (
     <SidebarProvider>
@@ -210,19 +208,10 @@ export function ChatPage() {
             <main className="flex-1 overflow-y-auto">
                 <ScrollArea className="h-full" viewportRef={viewportRef}>
                 <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto" ref={scrollAreaRef}>
-                    {(!activeConversation || activeConversation.messages.length === 0 || (activeConversation.messages.length === 1 && activeConversation.messages[0].role === 'assistant')) && !isPending ? (
+                    {showWelcomeScreen && !isPending ? (
                          <div className="flex flex-col items-center justify-center h-full pt-16">
                             <DiyaIcon className="h-12 w-12 text-primary mb-4" />
                             <h2 className="text-2xl font-bold mb-8">How can I help you today?</h2>
-
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-3xl mb-16">
-                                {suggestionChips.map((chip, i) => (
-                                    <Button key={i} variant="outline" className="h-16 flex-col items-start justify-start p-3 text-left" onClick={() => handleSendMessage(chip.text)}>
-                                        {chip.icon}
-                                        <span className="mt-2">{chip.text}</span>
-                                    </Button>
-                                ))}
-                            </div>
                         </div>
                     ) : (
                         activeConversation?.messages.map((message) => (
@@ -236,42 +225,51 @@ export function ChatPage() {
 
             <footer className="p-4 bg-background sticky bottom-0 z-10">
                 <div className="max-w-4xl mx-auto">
-                <form onSubmit={handleSubmit} className="relative">
-                     <Textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask anything..."
-                        className="flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base"
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSubmit(e);
-                            }
-                        }}
-                        disabled={isPending}
-                    />
-                    <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                            <Paperclip className="w-5 h-5" />
-                        </Button>
-                    </div>
-                    <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="rounded-full">
-                            <Mic className="w-5 h-5" />
-                        </Button>
-                        <Button
-                            type="submit"
-                            size="icon"
-                            className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/90"
-                            disabled={isPending || !input.trim()}
-                        >
-                            <Send className="w-5 h-5" />
-                        </Button>
-                    </div>
-                </form>
-                 <p className="text-xs text-center text-muted-foreground mt-2">
-                    By messaging Shravya AI, you agree to our Terms and have read our Privacy Policy.
-                </p>
+                    {showWelcomeScreen && !isPending && (
+                        <div className="flex justify-center items-center gap-2 mb-2">
+                            {suggestionChips.map((chip, i) => (
+                                <Button key={i} variant="outline" size="sm" onClick={() => handleSendMessage(chip.text)}>
+                                    {chip.text}
+                                </Button>
+                            ))}
+                        </div>
+                    )}
+                    <form onSubmit={handleSubmit} className="relative">
+                        <Textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="Ask anything..."
+                            className="flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base"
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSubmit(e);
+                                }
+                            }}
+                            disabled={isPending}
+                        />
+                        <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
+                            <Button variant="ghost" size="icon" className="rounded-full">
+                                <Paperclip className="w-5 h-5" />
+                            </Button>
+                        </div>
+                        <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
+                            <Button variant="ghost" size="icon" className="rounded-full">
+                                <Mic className="w-5 h-5" />
+                            </Button>
+                            <Button
+                                type="submit"
+                                size="icon"
+                                className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/90"
+                                disabled={isPending || !input.trim()}
+                            >
+                                <Send className="w-5 h-5" />
+                            </Button>
+                        </div>
+                    </form>
+                    <p className="text-xs text-center text-muted-foreground mt-2">
+                        By messaging Shravya AI, you agree to our Terms and have read our Privacy Policy.
+                    </p>
                 </div>
             </footer>
         </div>
