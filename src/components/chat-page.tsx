@@ -319,7 +319,7 @@ function ChatLayout() {
 
             <main className="flex-1 overflow-y-auto">
                 <ScrollArea className="h-full" viewportRef={viewportRef}>
-                <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto" ref={scrollAreaRef}>
+                <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-4xl mx-auto" ref={scrollAreaRef}>
                     {showWelcomeScreen && !isPending ? (
                          <div className="flex flex-col items-center justify-center h-full pt-16">
                             <DiyaIcon className="h-12 w-12 text-primary mb-4" />
@@ -339,7 +339,7 @@ function ChatLayout() {
                 </ScrollArea>
             </main>
 
-            <footer className="p-4 bg-background sticky bottom-0 z-10">
+            <footer className="p-2 md:p-4 bg-background sticky bottom-0 z-10">
                 <div className="max-w-4xl mx-auto">
                     {showWelcomeScreen && !isPending && (
                         <div className="flex justify-center items-center gap-2 mb-2">
