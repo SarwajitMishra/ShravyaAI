@@ -69,12 +69,20 @@ export async function getAiResponse(
         responseContent = safetyResult.safeResponse;
     } else {
         const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
-        const result = await conversationalResponse({
-            history: historyWithoutDisplay,
-            persona,
-        });
-
-        responseContent = result.response;
+        // If there's only one user message (the first one), use a simpler response flow.
+        if (historyWithoutDisplay.filter(m => m.role === 'user').length <= 1) {
+            const result = await personaBasedResponse({
+                prompt: latestUserMessage.content,
+                persona,
+            });
+            responseContent = result.response;
+        } else {
+            const result = await conversationalResponse({
+                history: historyWithoutDisplay,
+                persona,
+            });
+            responseContent = result.response;
+        }
     }
   } catch (error) {
     console.error("Error getting AI response:", error);
