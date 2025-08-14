@@ -13,6 +13,16 @@ export function useChatHistory(isLoggedIn: boolean) {
   const [isPending, startTransition] = useTransition();
   const [activePersona, setActivePersona] = useState<Persona>(initialPersona);
 
+  const createTemporaryConversation = (persona: Persona) => {
+    return {
+        id: 'temp',
+        title: `New Chat - ${persona}`,
+        persona: persona,
+        timestamp: Date.now(),
+        messages: [],
+    };
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       const savedHistory = localStorage.getItem('shravya-chat-history');
@@ -37,17 +47,12 @@ export function useChatHistory(isLoggedIn: boolean) {
         startNewConversation(savedPersona);
       }
     } else {
-        const tempConversation: Conversation = {
-          id: 'temp',
-          title: `New Chat - ${initialPersona}`,
-          persona: initialPersona,
-          timestamp: Date.now(),
-          messages: [],
-        };
+        const tempConversation = createTemporaryConversation(initialPersona);
         setConversations([tempConversation]);
-        setActiveConversationId('temp');
-        setActivePersona(initialPersona);
+        setActiveConversationId(tempConversation.id);
+        setActivePersona(tempConversation.persona);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
   useEffect(() => {
@@ -219,23 +224,26 @@ export function useChatHistory(isLoggedIn: boolean) {
   }, [updateActiveConversation]);
 
   const deleteConversation = useCallback((conversationId: string) => {
-    if (!isLoggedIn) return;
-
-    const remainingConversations = conversations.filter(c => c.id !== conversationId);
-    setConversations(remainingConversations);
-    
-    if (activeConversationId === conversationId) {
-      if (remainingConversations.length > 0) {
-        const newActiveConvo = remainingConversations[remainingConversations.length - 1];
-        setActiveConversationId(newActiveConvo.id);
-        setActivePersona(newActiveConvo.persona);
-      } else {
-        setActiveConversationId(null);
-        setActivePersona(initialPersona);
-        startNewConversation(initialPersona);
+    setConversations(prev => {
+      if (!isLoggedIn) return prev;
+      
+      const remainingConversations = prev.filter(c => c.id !== conversationId);
+      
+      if (activeConversationId === conversationId) {
+        if (remainingConversations.length > 0) {
+          const newActiveConvo = remainingConversations[remainingConversations.length - 1];
+          setActiveConversationId(newActiveConvo.id);
+          setActivePersona(newActiveConvo.persona);
+        } else {
+          setActiveConversationId(null);
+          setActivePersona(initialPersona);
+          // We queue up the action to avoid calling startTransition during a render
+          setTimeout(() => startNewConversation(initialPersona), 0);
+        }
       }
-    }
-  }, [isLoggedIn, conversations, activeConversationId, startNewConversation]);
+      return remainingConversations;
+    });
+  }, [isLoggedIn, activeConversationId, startNewConversation]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
