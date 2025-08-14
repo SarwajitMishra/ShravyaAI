@@ -13,7 +13,7 @@ export function useChatHistory(isLoggedIn: boolean) {
   const [isPending, startTransition] = useTransition();
   const [activePersona, setActivePersona] = useState<Persona>(initialPersona);
 
-  const createTemporaryConversation = (persona: Persona) => {
+  const createTemporaryConversation = (persona: Persona): Conversation => {
     return {
         id: 'temp',
         title: `New Chat - ${persona}`,
@@ -47,10 +47,9 @@ export function useChatHistory(isLoggedIn: boolean) {
         startNewConversation(savedPersona);
       }
     } else {
-        const tempConversation = createTemporaryConversation(initialPersona);
-        setConversations([tempConversation]);
-        setActiveConversationId(tempConversation.id);
-        setActivePersona(tempConversation.persona);
+      const tempConversation = createTemporaryConversation(activePersona);
+      setConversations([tempConversation]);
+      setActiveConversationId(tempConversation.id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
@@ -126,6 +125,8 @@ export function useChatHistory(isLoggedIn: boolean) {
                 setActiveConversationId(newConversation.id);
             } else {
                 startNewConversation(persona);
+                // early return to wait for new conversation to be created
+                return;
             }
         }
     }
@@ -158,8 +159,6 @@ export function useChatHistory(isLoggedIn: boolean) {
 
     startTransition(async () => {
       if (allHistoryForPersona.length === 0) {
-        // This can happen if the state update hasn't completed yet, especially on new conversation.
-        // We'll manually add the user message to ensure the AI gets it.
         allHistoryForPersona.push(newUserMessage);
       }
 
@@ -193,10 +192,8 @@ export function useChatHistory(isLoggedIn: boolean) {
 
     conversationsForPersona.forEach(c => {
       if(c.id === activeConversationId){
-        // For the active conversation, only take messages up to the one being regenerated
         historyForPersona.push(...c.messages.slice(0, messageIndex).filter(m => m.id !== '0'));
       } else {
-        // For older conversations, take all messages
         historyForPersona.push(...c.messages.filter(m => m.id !== '0'));
       }
     });
@@ -214,7 +211,6 @@ export function useChatHistory(isLoggedIn: boolean) {
                 isRoman: true,
                 isError,
             };
-            // Remove subsequent messages in the current conversation
             newMessages.splice(messageIndex + 1);
             return {...c, messages: newMessages};
         })
@@ -257,26 +253,22 @@ export function useChatHistory(isLoggedIn: boolean) {
   }, [updateActiveConversation]);
 
   const deleteConversation = useCallback((conversationId: string) => {
+    if (!isLoggedIn) return;
+
     setConversations(prev => {
-      if (!isLoggedIn) return prev;
-      
-      const remainingConversations = prev.filter(c => c.id !== conversationId);
-      
-      if (activeConversationId === conversationId) {
-        if (remainingConversations.length > 0) {
-          const newActiveConvo = remainingConversations.sort((a,b) => b.timestamp - a.timestamp)[0];
-          setActiveConversationId(newActiveConvo.id);
-          setActivePersona(newActiveConvo.persona);
-        } else {
-          setActiveConversationId(null);
-          setActivePersona(initialPersona);
-          // We queue up the action to avoid calling startTransition during a render
-          setTimeout(() => startNewConversation(initialPersona), 0);
+        const remaining = prev.filter(c => c.id !== conversationId);
+        if (activeConversationId === conversationId) {
+            if (remaining.length > 0) {
+                const newActive = remaining.sort((a,b) => b.timestamp - a.timestamp)[0];
+                setActiveConversationId(newActive.id);
+                setActivePersona(newActive.persona);
+            } else {
+                startNewConversation(activePersona || initialPersona);
+            }
         }
-      }
-      return remainingConversations;
+        return remaining;
     });
-  }, [isLoggedIn, activeConversationId, startNewConversation]);
+  }, [isLoggedIn, activeConversationId, startNewConversation, activePersona]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
@@ -296,5 +288,3 @@ export function useChatHistory(isLoggedIn: boolean) {
     setActivePersona,
   };
 }
-
-    
