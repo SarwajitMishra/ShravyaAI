@@ -1,3 +1,4 @@
+
 export type Persona = 'Friend' | 'Teacher' | 'Spiritual' | 'Pro' | 'Storyteller';
 
 export type Message = {
@@ -14,3 +15,11 @@ export type Message = {
 };
 
 export type QuickChipAction = 'explain' | 'fun' | 'steps';
+
+export type Conversation = {
+    id: string;
+    title: string;
+    messages: Message[];
+    persona: Persona;
+    timestamp: number;
+};
