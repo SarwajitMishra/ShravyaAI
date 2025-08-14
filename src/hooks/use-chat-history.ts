@@ -220,24 +220,22 @@ export function useChatHistory(isLoggedIn: boolean) {
 
   const deleteConversation = useCallback((conversationId: string) => {
     if (!isLoggedIn) return;
-    
-    setConversations(prev => {
-      const newConversations = prev.filter(c => c.id !== conversationId);
-      if (activeConversationId === conversationId) {
-        if (newConversations.length > 0) {
-          const newActiveConvo = newConversations[newConversations.length - 1];
-          setActiveConversationId(newActiveConvo.id);
-          setActivePersona(newActiveConvo.persona);
-        } else {
-          setActiveConversationId(null);
-          setActivePersona(initialPersona);
-          startNewConversation(initialPersona);
-        }
-      }
-      return newConversations;
-    });
 
-  }, [activeConversationId, startNewConversation, isLoggedIn]);
+    const remainingConversations = conversations.filter(c => c.id !== conversationId);
+    setConversations(remainingConversations);
+    
+    if (activeConversationId === conversationId) {
+      if (remainingConversations.length > 0) {
+        const newActiveConvo = remainingConversations[remainingConversations.length - 1];
+        setActiveConversationId(newActiveConvo.id);
+        setActivePersona(newActiveConvo.persona);
+      } else {
+        setActiveConversationId(null);
+        setActivePersona(initialPersona);
+        startNewConversation(initialPersona);
+      }
+    }
+  }, [isLoggedIn, conversations, activeConversationId, startNewConversation]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
