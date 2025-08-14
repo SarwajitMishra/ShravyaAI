@@ -16,7 +16,7 @@ export function useChatHistory(isLoggedIn: boolean) {
   const createTemporaryConversation = (persona: Persona): Conversation => {
     return {
         id: 'temp',
-        title: `New Chat`,
+        title: `${persona} - New Chat`,
         persona: persona,
         timestamp: Date.now(),
         messages: [],
@@ -82,7 +82,7 @@ export function useChatHistory(isLoggedIn: boolean) {
           const { content, nativeScript } = await getInitialGreeting(p);
           const newConversation: Conversation = {
             id: isLoggedIn ? Date.now().toString() : 'temp',
-            title: `New Chat`,
+            title: `${p} - New Chat`,
             persona: p,
             timestamp: Date.now(),
             messages: [{
@@ -113,7 +113,7 @@ export function useChatHistory(isLoggedIn: boolean) {
     if (!activeConv || (activeConv.messages.length <=1 && activeConv.id !=='temp' )) {
         if(isLoggedIn){
             if (activeConv) {
-                setConversations(prev => prev.map(c => c.id === activeConv.id ? {...c, persona: persona} : c));
+                setConversations(prev => prev.map(c => c.id === activeConv.id ? {...c, persona: persona, title: `${persona} - New Chat`} : c));
             }
             setActivePersona(persona);
         } else {
@@ -136,7 +136,7 @@ export function useChatHistory(isLoggedIn: boolean) {
     if (isLoggedIn && !activeConv) {
         const newConversation: Conversation = {
             id: Date.now().toString(),
-            title: content.substring(0, 30) + '...',
+            title: `${persona} - ${content.substring(0, 30)}...`,
             persona: persona,
             timestamp: Date.now(),
             messages: [],
@@ -169,7 +169,7 @@ export function useChatHistory(isLoggedIn: boolean) {
         
         return prev.map(c => {
             if (c.id === activeConversationId) {
-                const newTitle = (c.messages.length === 0 || (c.messages.length === 1 && c.messages[0].id === '0')) ? content.substring(0, 30) + '...' : c.title;
+                const newTitle = (c.messages.length === 0 || (c.messages.length === 1 && c.messages[0].id === '0')) ? `${persona} - ${content.substring(0, 30)}...` : c.title;
                 const updatedMessages = [...c.messages, newUserMessage];
                  if (!isLoggedIn) {
                     allHistoryForPersona.push(newUserMessage);
@@ -312,3 +312,5 @@ export function useChatHistory(isLoggedIn: boolean) {
     setActivePersona,
   };
 }
+
+    
