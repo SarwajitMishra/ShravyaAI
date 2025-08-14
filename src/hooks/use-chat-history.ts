@@ -44,7 +44,7 @@ export function useChatHistory(isLoggedIn: boolean) {
         isArchived: false,
       };
 
-      setConversations(prev => [...prev, newConversation].sort((a,b) => b.timestamp - a.timestamp));
+      setConversations(prev => [...prev, newConversation].sort((a, b) => b.timestamp - a.timestamp));
       setActiveConversationIdState(newConversation.id);
       setActivePersona(persona);
     });
