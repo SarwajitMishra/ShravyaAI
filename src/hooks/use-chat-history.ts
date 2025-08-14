@@ -6,7 +6,7 @@ import type { Message, Persona, QuickChipAction, Conversation } from '@/lib/type
 import { getAiResponse, getQuickResponse, getInitialGreeting } from '@/app/actions';
 
 const initialPersona: Persona = 'Friend';
-const LOGIN_PROMPT_INTERVAL = 3; // Show prompt after every 3 user messages for guests
+const LOGIN_PROMPT_INTERVAL = 10; // Show prompt after every 10 user messages for guests
 
 export function useChatHistory(isLoggedIn: boolean) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
