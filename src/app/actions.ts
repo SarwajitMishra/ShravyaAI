@@ -27,6 +27,7 @@ import {
 import {
   behaviorModeSelection
 } from '@/ai/flows/behavior-mode-selection';
+import { conversationalResponse } from '@/ai/flows/conversational-response';
 
 
 const transliterateToDevanagari = (text: string): string => {
@@ -67,19 +68,12 @@ export async function getAiResponse(
     if (!isSafe) {
         responseContent = safetyResult.safeResponse;
     } else {
-        const understoodInput = await understandRomanizedInput({
-          romanizedInput: latestUserMessage.content,
+        const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
+        const result = await conversationalResponse({
+            history: historyWithoutDisplay,
+            persona,
         });
 
-        const culturalContext = await culturalContextIntegration({
-          query: understoodInput.understoodQuery,
-          currentDate: new Date().toISOString(),
-        });
-        
-        const result = await personaBasedResponse({
-          prompt: culturalContext.response,
-          persona,
-        });
         responseContent = result.response;
     }
   } catch (error) {
