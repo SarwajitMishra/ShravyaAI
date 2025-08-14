@@ -173,7 +173,7 @@ export function useChatHistory(isLoggedIn: boolean) {
     );
   
     startTransition(async () => {
-      const historyToConsider = updatedMessages.map(({ role, content }) => ({ role, content }));
+      const historyToConsider = updatedMessages.map(({ id, role, content }) => ({ id, role, content }));
       const { content: aiContent, nativeScript, isError } = await getAiResponse(historyToConsider, persona);
   
       const newAiMessage: Message = {
@@ -296,6 +296,14 @@ export function useChatHistory(isLoggedIn: boolean) {
      }
   }, [activeConversationId]);
 
+  const dismissLoginPrompt = useCallback((messageId: string) => {
+    updateActiveConversation(c => ({
+        ...c,
+        messages: c.messages.filter(m => m.id !== messageId)
+    }));
+  }, [updateActiveConversation]);
+
+
   useEffect(() => {
     if (!isInitialLoad && !isPending && activeConversationId === null && isLoggedIn) {
       startNewConversation(activePersona || initialPersona);
@@ -322,5 +330,6 @@ export function useChatHistory(isLoggedIn: boolean) {
     archiveConversation,
     activePersona,
     setActivePersona,
+    dismissLoginPrompt,
   };
 }

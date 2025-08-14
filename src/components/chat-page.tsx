@@ -62,6 +62,7 @@ function ChatLayout() {
     archiveConversation,
     activePersona,
     setActivePersona,
+    dismissLoginPrompt,
   } = useChatHistory(isLoggedIn);
 
   const [input, setInput] = useState("");
@@ -286,7 +287,7 @@ function ChatLayout() {
                     ) : (
                         activeConversation?.messages.map((message) => 
                            message.role === 'system' ? (
-                            <LoginPrompt key={message.id} onLogin={handleLogin} />
+                            <LoginPrompt key={message.id} onLogin={handleLogin} onDismiss={() => dismissLoginPrompt(message.id)} />
                            ) : (
                             <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message.id)} onScriptToggle={() => toggleScript(message.id)} />
                            )
