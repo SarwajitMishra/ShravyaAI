@@ -70,9 +70,11 @@ export async function getAiResponse(
     } else {
         const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
         const userMessagesCount = historyWithoutDisplay.filter(m => m.role === 'user').length;
-        
-        // If there's only one user message (the first one), use a simpler response flow.
-        if (userMessagesCount <= 1) {
+        const assistantMessagesCount = historyWithoutDisplay.filter(m => m.role === 'assistant').length;
+
+        // For the very first user message in a new conversation, use the simple flow.
+        // This occurs when there is one assistant message (the greeting) and one user message.
+        if (userMessagesCount === 1 && assistantMessagesCount === 1) {
             const result = await personaBasedResponse({
                 prompt: latestUserMessage.content,
                 persona,
