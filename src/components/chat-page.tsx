@@ -2,9 +2,25 @@
 
 import React, { useState, useEffect, useRef, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+  } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Sparkles, BookOpen, ListOrdered } from "lucide-react";
+import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -19,6 +35,9 @@ export function ChatPage() {
   const [activePersona, setActivePersona] = useState<Persona>("Friend");
   const [isPending, startTransition] = useTransition();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
 
   useEffect(() => {
     const savedPersona = localStorage.getItem("shravya-persona") as Persona;
@@ -56,6 +75,20 @@ export function ChatPage() {
       });
     }
   }, [messages]);
+
+  const handlePersonaChange = (persona: Persona) => {
+    if (persona !== activePersona) {
+      setSelectedPersona(persona);
+      setIsDialogOpen(true);
+    }
+  };
+
+  const confirmPersonaChange = () => {
+    if (selectedPersona) {
+      setActivePersona(selectedPersona);
+    }
+    setIsDialogOpen(false);
+  };
 
   const handleSendMessage = (content: string) => {
     if (!content.trim()) return;
@@ -130,25 +163,45 @@ export function ChatPage() {
 
   return (
     <div className="flex flex-col h-screen w-full bg-background">
+        <AlertDialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                <AlertDialogTitle>Change Persona?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Changing the persona will clear your current chat history. Are you sure you want to continue?
+                </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmPersonaChange}>Continue</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
       <header className="p-4 border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="flex justify-between items-center max-w-4xl mx-auto">
             <div className="flex items-center gap-2">
                 <DiyaIcon className="h-8 w-8 text-primary" />
                 <h1 className="text-xl font-bold font-headline text-primary-foreground">Shravya AI</h1>
             </div>
-          <div className="hidden sm:flex items-center gap-2">
-            {personas.map((persona) => (
-              <Button
-                key={persona}
-                variant={activePersona === persona ? "default" : "ghost"}
-                size="sm"
-                className={`rounded-full transition-all ${activePersona === persona ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setActivePersona(persona)}
-              >
-                {persona}
-              </Button>
-            ))}
-          </div>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-40 justify-between">
+                        <span>{activePersona}</span>
+                        <ChevronDown className="h-4 w-4" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-40">
+                    {personas.map((persona) => (
+                    <DropdownMenuItem
+                        key={persona}
+                        onSelect={() => handlePersonaChange(persona)}
+                        className={activePersona === persona ? 'bg-primary/10' : ''}
+                    >
+                        {persona}
+                    </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
         </div>
       </header>
 
