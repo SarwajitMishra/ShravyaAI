@@ -7,46 +7,53 @@ import { getAiResponse, getQuickResponse, getInitialGreeting } from '@/app/actio
 
 const initialPersona: Persona = 'Friend';
 
-export function useChatHistory() {
+export function useChatHistory(isLoggedIn: boolean) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [activePersona, setActivePersona] = useState<Persona>(initialPersona);
 
   useEffect(() => {
-    const savedHistory = localStorage.getItem('shravya-chat-history');
-    const savedPersona = localStorage.getItem('shravya-persona') as Persona;
-    
-    if (savedPersona) {
-        setActivePersona(savedPersona);
-    }
+    if (isLoggedIn) {
+      const savedHistory = localStorage.getItem('shravya-chat-history');
+      const savedPersona = localStorage.getItem('shravya-persona') as Persona;
+      
+      if (savedPersona) {
+          setActivePersona(savedPersona);
+      }
 
-    if (savedHistory) {
-      const parsedHistory = JSON.parse(savedHistory);
-      if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
-        setConversations(parsedHistory);
-        const latestConversation = parsedHistory[parsedHistory.length - 1];
-        setActiveConversationId(latestConversation.id);
-        setActivePersona(latestConversation.persona);
+      if (savedHistory) {
+        const parsedHistory = JSON.parse(savedHistory);
+        if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+          setConversations(parsedHistory);
+          const latestConversation = parsedHistory[parsedHistory.length - 1];
+          setActiveConversationId(latestConversation.id);
+          setActivePersona(latestConversation.persona);
+        } else {
+          startNewConversation(savedPersona || initialPersona);
+        }
       } else {
         startNewConversation(savedPersona || initialPersona);
       }
     } else {
-      startNewConversation(savedPersona || initialPersona);
+        // Not logged in, clear history and start a temp conversation
+        setConversations([]);
+        setActiveConversationId(null);
+        startNewConversation(initialPersona);
     }
-  }, []);
+  }, [isLoggedIn]);
 
   useEffect(() => {
-    if (conversations.length > 0) {
+    if (isLoggedIn && conversations.length > 0) {
       localStorage.setItem('shravya-chat-history', JSON.stringify(conversations));
     }
     const activeConvo = conversations.find(c => c.id === activeConversationId);
-    if(activeConvo){
+    if(isLoggedIn && activeConvo){
         localStorage.setItem("shravya-persona", activeConvo.persona);
         setActivePersona(activeConvo.persona);
     }
 
-  }, [conversations, activeConversationId]);
+  }, [conversations, activeConversationId, isLoggedIn]);
 
   const startNewConversation = useCallback((persona: Persona) => {
     startTransition(async () => {
@@ -65,11 +72,15 @@ export function useChatHistory() {
           isRoman: true,
         }],
       };
-      setConversations(prev => [...prev, newConversation]);
+      if (isLoggedIn) {
+        setConversations(prev => [...prev, newConversation]);
+      } else {
+        setConversations([newConversation]);
+      }
       setActiveConversationId(newConversation.id);
       setActivePersona(persona);
     });
-  }, []);
+  }, [isLoggedIn]);
 
   const updateActiveConversation = useCallback((updater: (conversation: Conversation) => Conversation) => {
     setConversations(prev =>
@@ -176,19 +187,18 @@ export function useChatHistory() {
   }, [updateActiveConversation]);
 
   const deleteConversation = useCallback((conversationId: string) => {
+    if (!isLoggedIn) return;
     setConversations(prev => prev.filter(c => c.id !== conversationId));
     if (activeConversationId === conversationId) {
       if (conversations.length > 1) {
-        // Find index of deleted conversation
         const deletedIndex = conversations.findIndex(c => c.id === conversationId);
-        // Activate previous conversation or the first one
         const newActiveIndex = Math.max(0, deletedIndex - 1);
         setActiveConversationId(conversations[newActiveIndex].id);
       } else {
         startNewConversation(activePersona);
       }
     }
-  }, [conversations, activeConversationId, activePersona, startNewConversation]);
+  }, [conversations, activeConversationId, activePersona, startNewConversation, isLoggedIn]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
