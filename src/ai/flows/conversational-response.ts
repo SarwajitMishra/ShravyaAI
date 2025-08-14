@@ -43,7 +43,9 @@ Your primary goal is to respond in the same language and style as the user's las
 
 Conversation History:
   {{#each history}}
-  {{role}}: {{{content}}}
+  {{#if this.role}}
+  {{this.role}}: {{{this.content}}}
+  {{/if}}
   {{/each}}
   
   assistant:`,
