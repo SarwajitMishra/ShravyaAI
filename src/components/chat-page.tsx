@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, Code, Brain, Lightbulb, Pencil, Paperclip, Mic } from "lucide-react";
+import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, Code, Brain, Lightbulb, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2 } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -29,6 +29,9 @@ import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
 import type { Persona } from "@/lib/types";
 import { Sidebar, SidebarProvider, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
@@ -42,6 +45,7 @@ const suggestionChips = [
 
 export function ChatPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { toast } = useToast();
 
   const {
     conversations,
@@ -54,6 +58,8 @@ export function ChatPage() {
     toggleScript,
     setActiveConversationId,
     deleteConversation,
+    renameConversation,
+    archiveConversation,
     activePersona,
     setActivePersona,
   } = useChatHistory(isLoggedIn);
@@ -64,6 +70,10 @@ export function ChatPage() {
 
   const [isPersonaChangeDialogOpen, setIsPersonaChangeDialogOpen] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
+
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [conversationToRename, setConversationToRename] = useState<string | null>(null);
+  const [newConversationName, setNewConversationName] = useState("");
 
   useEffect(() => {
     if (viewportRef.current) {
@@ -114,6 +124,21 @@ export function ChatPage() {
     setIsLoggedIn(true);
   }
 
+  const handleRenameClick = (conversationId: string, currentTitle: string) => {
+    setConversationToRename(conversationId);
+    setNewConversationName(currentTitle);
+    setRenameDialogOpen(true);
+  };
+
+  const handleRenameSubmit = () => {
+    if (conversationToRename && newConversationName.trim()) {
+      renameConversation(conversationToRename, newConversationName.trim());
+      setRenameDialogOpen(false);
+      setConversationToRename(null);
+      setNewConversationName("");
+    }
+  };
+
   const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0 || (activeConversation.messages.length === 1 && activeConversation.messages[0].role === 'assistant');
 
   return (
@@ -134,6 +159,26 @@ export function ChatPage() {
             </AlertDialogContent>
         </AlertDialog>
 
+        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Rename Conversation</DialogTitle>
+                </DialogHeader>
+                <div className="py-4">
+                    <Input 
+                        value={newConversationName}
+                        onChange={(e) => setNewConversationName(e.target.value)}
+                        placeholder="Enter new name"
+                    />
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleRenameSubmit}>Rename</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+
         {isLoggedIn && (
           <Sidebar>
               <SidebarContent className="p-2">
@@ -147,19 +192,40 @@ export function ChatPage() {
                                         <SidebarMenuButton 
                                             onClick={() => setActiveConversationId(convo.id)}
                                             isActive={activeConversation?.id === convo.id}
-                                            className="w-full justify-start"
+                                            className="w-full justify-start pr-10"
                                         >
                                             <MessageSquare className="h-4 w-4" />
                                             <span className="truncate">{convo.title}</span>
                                         </SidebarMenuButton>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
-                                            onClick={() => deleteConversation(convo.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
+                                                >
+                                                    <MoreHorizontal className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
+                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                    <span>Rename</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
+                                                    <Share2 className="mr-2 h-4 w-4" />
+                                                    <span>Share</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => archiveConversation(convo.id)}>
+                                                    <Archive className="mr-2 h-4 w-4" />
+                                                    <span>Archive</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => deleteConversation(convo.id)} className="text-destructive">
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    <span>Delete</span>
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     </SidebarMenuItem>
                                 ))}
                               </SidebarMenu>

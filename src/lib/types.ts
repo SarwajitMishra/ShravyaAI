@@ -22,4 +22,5 @@ export type Conversation = {
     messages: Message[];
     persona: Persona;
     timestamp: number;
+    isArchived: boolean;
 };
