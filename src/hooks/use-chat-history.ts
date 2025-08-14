@@ -31,7 +31,7 @@ export function useChatHistory(isLoggedIn: boolean) {
     startTransition(async () => {
       const { content, nativeScript } = await getInitialGreeting(persona);
       const newConversation: Conversation = {
-        id: isLoggedIn ? Date.now().toString() : `guest-${++guestConversationCount}`,
+        id: Date.now().toString(),
         title: `[${persona}] - New Chat`,
         persona: persona,
         timestamp: Date.now(),
@@ -46,57 +46,48 @@ export function useChatHistory(isLoggedIn: boolean) {
         isArchived: false,
       };
 
-      if (isLoggedIn) {
-          setConversations(prev => [...prev, newConversation].sort((a,b) => b.timestamp - a.timestamp));
-      } else {
-        // For guests, we add to the list of conversations in memory for the session
-        setConversations(prev => [...prev, newConversation]);
-      }
+      // For guests, we add to the list of conversations in memory for the session
+      setConversations(prev => [...prev, newConversation].sort((a,b) => b.timestamp - a.timestamp));
       setActiveConversationIdState(newConversation.id);
       setActivePersona(persona);
     });
-  }, [isLoggedIn]);
+  }, []);
   
   useEffect(() => {
     if (isInitialLoad) {
-        if (isLoggedIn) {
-            const savedHistory = localStorage.getItem('shravya-chat-history');
-            const savedPersona = localStorage.getItem('shravya-persona') as Persona || initialPersona;
-            try {
-                const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
-                if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
-                    setConversations(parsedHistory);
-                    const latestConversation = parsedHistory.sort((a,b) => b.timestamp - a.timestamp)[0];
-                    setActiveConversationIdState(latestConversation.id);
-                    setActivePersona(latestConversation.persona);
-                } else {
-                    startNewConversation(savedPersona);
-                }
-            } catch (e) {
-                console.error("Failed to parse chat history:", e);
+        const savedHistory = localStorage.getItem('shravya-chat-history');
+        const savedPersona = localStorage.getItem('shravya-persona') as Persona || initialPersona;
+        try {
+            const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
+            if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+                setConversations(parsedHistory);
+                const latestConversation = parsedHistory.sort((a,b) => b.timestamp - a.timestamp)[0];
+                setActiveConversationIdState(latestConversation.id);
+                setActivePersona(latestConversation.persona);
+            } else {
                 startNewConversation(savedPersona);
             }
-        } else {
-            startNewConversation(initialPersona);
+        } catch (e) {
+            console.error("Failed to parse chat history:", e);
+            startNewConversation(savedPersona);
         }
         setIsInitialLoad(false);
     }
-  }, [isLoggedIn, isInitialLoad, startNewConversation]);
+  }, [isInitialLoad, startNewConversation]);
 
   useEffect(() => {
-    if (isLoggedIn && !isInitialLoad && conversations.length > 0) {
-      const convosToSave = conversations.filter(c => !c.id.startsWith('guest-'));
-      if (convosToSave.length > 0) {
-        localStorage.setItem('shravya-chat-history', JSON.stringify(convosToSave));
+    if (!isInitialLoad && conversations.length > 0) {
+      if (conversations.length > 0) {
+        localStorage.setItem('shravya-chat-history', JSON.stringify(conversations));
       } else {
         localStorage.removeItem('shravya-chat-history');
       }
     }
     const activeConvo = conversations.find(c => c.id === activeConversationId);
-    if(isLoggedIn && !isInitialLoad && activeConvo && !activeConvo.id.startsWith('guest-')){
+    if(!isInitialLoad && activeConvo){
         localStorage.setItem("shravya-persona", activeConvo.persona);
     }
-  }, [conversations, activeConversationId, isLoggedIn, isInitialLoad]);
+  }, [conversations, activeConversationId, isInitialLoad]);
 
   const updateActiveConversation = useCallback((updater: (conversation: Conversation) => Conversation) => {
     setConversations(prev =>
