@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 
 interface ChatMessageProps {
@@ -70,7 +71,18 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
             <p className="font-bold">Error</p>
           </div>
         )}
-        <p className="m-0 whitespace-pre-wrap">{message.displayContent || message.content}</p>
+        {isUser ? (
+          <p className="m-0 whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <ReactMarkdown
+            className="whitespace-pre-wrap"
+            components={{
+                p: ({node, ...props}) => <p className="m-0" {...props} />,
+            }}
+          >
+            {message.displayContent || message.content}
+          </ReactMarkdown>
+        )}
         
         {!isUser && !message.isError && (
             <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity">
