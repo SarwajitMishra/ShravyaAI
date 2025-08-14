@@ -46,6 +46,7 @@ export function useChatHistory(isLoggedIn: boolean) {
 
       if (isLoggedIn) {
         setConversations(prev => [...prev, newConversation].sort((a, b) => b.timestamp - a.timestamp));
+        setActiveConversationIdState(newConversation.id);
       } else {
         const existingConvoForPersona = conversations.find(c => c.persona === persona);
         if (existingConvoForPersona) {
@@ -109,25 +110,26 @@ export function useChatHistory(isLoggedIn: boolean) {
       role: 'user',
       content,
     };
-  
-    const currentConversation = conversations.find(c => c.id === activeConversationId);
-  
-    const updatedMessages = currentConversation ? [...currentConversation.messages.filter(m => m.role !== 'system'), newUserMessage] : [newUserMessage];
-    const newTitle = (currentConversation?.messages.length === 0 || (currentConversation?.messages.length === 1 && currentConversation?.messages[0].role === 'assistant'))
-      ? `[${persona}] - ${content.substring(0, 30)}...`
-      : currentConversation?.title;
 
-    updateActiveConversation(c => ({
-        ...c,
-        messages: updatedMessages,
-        title: newTitle || c.title,
-    }));
+    let historyForAi: Message[] = [];
+  
+    updateActiveConversation(c => {
+        const updatedMessages = [...c.messages.filter(m => m.role !== 'system'), newUserMessage];
+        historyForAi = updatedMessages; // Capture the latest messages for the AI
+        
+        const newTitle = (c.messages.length === 0 || (c.messages.length === 1 && c.messages[0].role === 'assistant'))
+          ? `[${persona}] - ${content.substring(0, 30)}...`
+          : c.title;
+
+        return {
+            ...c,
+            messages: updatedMessages,
+            title: newTitle,
+        };
+    });
   
     startTransition(async () => {
-      const updatedConversation = conversations.find(c => c.id === activeConversationId);
-      const historyToConsider = updatedConversation?.messages.map(({ role, content }) => ({ role, content })) || [{role: 'user', content}];
-      
-      const { content: aiContent, nativeScript, isError } = await getAiResponse(historyToConsider, persona);
+      const { content: aiContent, nativeScript, isError } = await getAiResponse(historyForAi, persona);
   
       const newAiMessage: Message = {
         id: Date.now().toString() + '-ai',
@@ -155,7 +157,7 @@ export function useChatHistory(isLoggedIn: boolean) {
         return {...c, messages: finalMessages};
       });
     });
-  }, [activeConversationId, conversations, isLoggedIn, updateActiveConversation]);
+  }, [activeConversationId, isLoggedIn, updateActiveConversation]);
   
   const regenerateResponse = useCallback((messageId: string) => {
     const conversation = conversations.find(c => c.id === activeConversationId);
