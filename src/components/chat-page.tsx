@@ -92,7 +92,7 @@ function ChatLayout() {
 
   const handlePersonaChange = (persona: Persona) => {
     if (persona !== activePersona) {
-      if (isLoggedIn && activeConversation && activeConversation.messages.length > 1) {
+      if (activeConversation && activeConversation.messages.length > 1) {
         setSelectedPersona(persona);
         setIsPersonaChangeDialogOpen(true);
       } else {
@@ -113,11 +113,6 @@ function ChatLayout() {
     const content = (message || input).trim();
     if (!content) return;
     
-    if(!isLoggedIn) {
-        // This is a guest user. We don't automatically log them in here.
-        // The useChatHistory hook will handle temporary state.
-    }
-
     sendMessage(content, activePersona);
     setInput("");
   };
@@ -227,69 +222,68 @@ function ChatLayout() {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
-
-        {isLoggedIn && (
-          <Sidebar>
-              <SidebarContent className="p-2">
-                  <div className="flex h-full flex-col">
-                      <div className="p-2 flex-grow">
-                          <h2 className="text-lg font-semibold mb-4 text-foreground">History</h2>
-                          <ScrollArea className="h-[calc(100vh-150px)]">
-                              <SidebarMenu>
-                                {conversations.map((convo) => (
-                                    <SidebarMenuItem key={convo.id}>
-                                        <SidebarMenuButton 
-                                            onClick={() => setActiveConversationId(convo.id)}
-                                            isActive={activeConversation?.id === convo.id}
-                                            className="w-full justify-start pr-10"
-                                        >
-                                            <MessageSquare className="h-4 w-4" />
-                                            <span className="truncate">{convo.title}</span>
-                                        </SidebarMenuButton>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
-                                                >
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
-                                                    <Pencil className="mr-2 h-4 w-4" />
-                                                    <span>Rename</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
-                                                    <Share2 className="mr-2 h-4 w-4" />
-                                                    <span>Share</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => archiveConversation(convo.id)}>
-                                                    <Archive className="mr-2 h-4 w-4" />
-                                                    <span>Archive</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => deleteConversation(convo.id)} className="text-destructive">
-                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                    <span>Delete</span>
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </SidebarMenuItem>
-                                ))}
-                              </SidebarMenu>
-                          </ScrollArea>
-                      </div>
-                  </div>
-              </SidebarContent>
-          </Sidebar>
-        )}
+        
+        <Sidebar>
+            <SidebarContent className="p-2">
+                <div className="flex h-full flex-col">
+                    <div className="p-2 flex-grow">
+                        <h2 className="text-lg font-semibold mb-4 text-foreground">History</h2>
+                        <ScrollArea className="h-[calc(100vh-150px)]">
+                            <SidebarMenu>
+                            {conversations.map((convo) => (
+                                <SidebarMenuItem key={convo.id}>
+                                    <SidebarMenuButton 
+                                        onClick={() => setActiveConversationId(convo.id)}
+                                        isActive={activeConversation?.id === convo.id}
+                                        className="w-full justify-start pr-10"
+                                    >
+                                        <MessageSquare className="h-4 w-4" />
+                                        <span className="truncate">{convo.title}</span>
+                                    </SidebarMenuButton>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
+                                            >
+                                                <MoreHorizontal className="h-4 w-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
+                                                <Pencil className="mr-2 h-4 w-4" />
+                                                <span>Rename</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
+                                                <Share2 className="mr-2 h-4 w-4" />
+                                                <span>Share</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => archiveConversation(convo.id)}>
+                                                <Archive className="mr-2 h-4 w-4" />
+                                                <span>Archive</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => deleteConversation(convo.id)} className="text-destructive">
+                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                <span>Delete</span>
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </SidebarMenuItem>
+                            ))}
+                            </SidebarMenu>
+                        </ScrollArea>
+                    </div>
+                </div>
+            </SidebarContent>
+        </Sidebar>
+        
 
         <div className="flex flex-col h-screen w-full">
             <header className="p-4 border-b border-border/50 sticky top-0 z-10 bg-background/50 backdrop-blur-sm">
                 <div className="flex justify-between items-center max-w-7xl mx-auto">
                     <div className="flex items-center gap-4">
-                        {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
+                        <SidebarTrigger className="md:hidden"/>
                         <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -404,3 +398,5 @@ export function ChatPage() {
         </SidebarProvider>
     )
 }
+
+    
