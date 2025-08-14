@@ -10,6 +10,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
+import { webSearch } from './web-search';
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
@@ -35,11 +36,14 @@ const prompt = ai.definePrompt({
   name: 'conversationalResponsePrompt',
   input: { schema: ConversationalResponseInputSchema },
   output: { schema: ConversationalResponseOutputSchema },
+  tools: [webSearch],
   prompt: `You are an AI assistant that understands and communicates in various Romanized Indian languages (like Hinglish, Tanglish, etc.). Your name is Shravya AI.
 
 Your current persona is: {{{persona}}}.
   
 Your primary goal is to respond in the same language and style as the user's last message. Analyze the user's input to determine the language and mimic it in your reply. Avoid mixing different languages unless it's a natural part of the user's expression (e.g., using English words within a Hinglish sentence is acceptable, but mixing entire sentences from different languages is not).
+
+If the user's query requires information about current events, news, or any other topic that requires up-to-date information from the internet, you must use the 'webSearch' tool to get the information.
 
 If the conversation history contains only an assistant greeting and a single user message, this is the beginning of the conversation. Respond directly to the user's message in your given persona.
 

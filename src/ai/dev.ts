@@ -10,3 +10,4 @@ import '@/ai/flows/cultural-context-integration.ts';
 import '@/ai/flows/safety-and-tone.ts';
 import '@/ai/flows/conversational-response.ts';
 import '@/ai/flows/transcribe-audio.ts';
+import '@/ai/flows/web-search.ts';
