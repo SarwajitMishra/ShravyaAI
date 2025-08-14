@@ -52,7 +52,7 @@ export async function getAiResponse(
   nativeScript: string;
   isError: boolean;
 } > {
-  const latestUserMessage = history[history.length - 1];
+  const latestUserMessage = history.find(m => m.role === 'user');
   let responseContent = "";
   let nativeScript = "";
   let isError = false;
@@ -61,7 +61,7 @@ export async function getAiResponse(
 
   try {
     const safetyResult = await checkSafetyAndTone({
-      userInput: latestUserMessage.content,
+      userInput: latestUserMessage?.content || '',
       persona,
     });
     
@@ -77,8 +77,8 @@ export async function getAiResponse(
         responseContent = result.response;
     }
   } catch (error: any) {
-    // Return debug information on error
-    responseContent = `Error debugging info:\n---\nPersona: ${persona}\n---\nHistory:\n${JSON.stringify(historyWithoutDisplay, null, 2)}`;
+    console.error("Error getting AI response:", error);
+    responseContent = "I'm having a little trouble right now. Please try again in a moment.";
     isError = true;
   }
   

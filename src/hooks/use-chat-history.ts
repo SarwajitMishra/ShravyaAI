@@ -140,7 +140,7 @@ export function useChatHistory(isLoggedIn: boolean) {
     if (isLoggedIn && (!activeConv || activeConv.id === 'temp')) {
         const newConversation: Conversation = {
             id: Date.now().toString(),
-            title: `${persona} - ${content.substring(0, 30)}...`,
+            title: `[${persona}] - ${content.substring(0, 30)}...`,
             persona: persona,
             timestamp: Date.now(),
             messages: activeConv ? activeConv.messages : [],
@@ -157,42 +157,22 @@ export function useChatHistory(isLoggedIn: boolean) {
       content,
     };
 
-    let allHistoryForPersona: Message[] = [];
-
-    setConversations(prev => {
-        if (isLoggedIn) {
-            const conversationsForPersona = prev.filter(c => c.persona === persona && c.id !== 'temp');
-            
-            conversationsForPersona.forEach(c => {
-                if(c.id === newConversationId) {
-                    allHistoryForPersona.push(...c.messages.filter(m => m.id !== '0'));
-                } else {
-                    allHistoryForPersona.push(...c.messages.filter(m => m.id !== '0'));
-                }
-            });
-             allHistoryForPersona.push(newUserMessage);
-        } else {
-            if(activeConv) {
-                 allHistoryForPersona.push(...activeConv.messages.filter(m => m.id !== '0'), newUserMessage);
-            } else {
-                allHistoryForPersona.push(newUserMessage);
-            }
+    let updatedMessages: Message[] = [];
+    setConversations(prev =>
+      prev.map(c => {
+        if (c.id === newConversationId) {
+          const newTitle = (c.messages.length === 0 || (c.messages.length === 1 && c.messages[0].id === '0')) ? `[${persona}] - ${content.substring(0, 30)}...` : c.title;
+          updatedMessages = [...c.messages, newUserMessage];
+          return { ...c, title: newTitle, messages: updatedMessages };
         }
-        
-        return prev.map(c => {
-            if (c.id === newConversationId) {
-                const newTitle = (c.messages.length === 0 || (c.messages.length === 1 && c.messages[0].id === '0')) ? `${persona} - ${content.substring(0, 30)}...` : c.title;
-                const updatedMessages = [...c.messages, newUserMessage];
-                return { ...c, title: newTitle, messages: updatedMessages };
-            }
-            return c;
-        });
-    });
+        return c;
+      })
+    );
 
     startTransition(async () => {
-      const historyToConsider = isLoggedIn ? allHistoryForPersona : allHistoryForPersona;
-
+      const historyToConsider = updatedMessages.map(({ role, content }) => ({ role, content }));
       const { content: aiContent, nativeScript, isError } = await getAiResponse(historyToConsider, persona);
+
       const newAiMessage: Message = {
         id: Date.now().toString() + '-ai',
         role: 'assistant',
