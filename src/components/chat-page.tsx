@@ -285,7 +285,7 @@ function ChatLayout() {
             <header className="p-4 border-b border-border/50 sticky top-0 z-10 bg-background/50 backdrop-blur-sm">
                 <div className="flex justify-between items-center max-w-7xl mx-auto">
                     <div className="flex items-center gap-4">
-                        <SidebarTrigger className="md:hidden"/>
+                        {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
                         <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -400,7 +400,5 @@ export function ChatPage() {
         </SidebarProvider>
     )
 }
-
-    
 
     
