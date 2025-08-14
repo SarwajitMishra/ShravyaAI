@@ -28,6 +28,7 @@ import {
   behaviorModeSelection
 } from '@/ai/flows/behavior-mode-selection';
 import { conversationalResponse } from '@/ai/flows/conversational-response';
+import { transcribeAudio as transcribeAudioFlow } from '@/ai/flows/transcribe-audio';
 
 
 const transliterateToDevanagari = (text: string): string => {
@@ -136,4 +137,14 @@ export async function getInitialGreeting(persona: Persona): Promise<{ content: s
     const nativeScript = transliterateToDevanagari(content);
     return { content, nativeScript, isError: true };
   }
+}
+
+export async function transcribeAudio(audioDataUri: string): Promise<string> {
+    try {
+        const { transcription } = await transcribeAudioFlow({ audioDataUri });
+        return transcription;
+    } catch (error) {
+        console.error("Error transcribing audio:", error);
+        return "Sorry, I couldn't understand that. Please try again.";
+    }
 }

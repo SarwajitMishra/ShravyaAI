@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2 } from "lucide-react";
+import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -33,6 +33,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { LoginPrompt } from "@/components/login-prompt";
+import { transcribeAudio } from "@/app/actions";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
@@ -75,6 +76,10 @@ function ChatLayout() {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [conversationToRename, setConversationToRename] = useState<string | null>(null);
   const [newConversationName, setNewConversationName] = useState("");
+
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     if (viewportRef.current) {
@@ -142,6 +147,46 @@ function ChatLayout() {
       setRenameDialogOpen(false);
       setConversationToRename(null);
       setNewConversationName("");
+    }
+  };
+
+  const handleMicClick = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+
+        mediaRecorderRef.current.addEventListener("dataavailable", (event) => {
+          audioChunksRef.current.push(event.data);
+        });
+
+        mediaRecorderRef.current.addEventListener("stop", async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Audio = reader.result as string;
+            setInput("Transcribing audio...");
+            const transcription = await transcribeAudio(base64Audio);
+            setInput(transcription);
+          };
+          stream.getTracks().forEach(track => track.stop());
+        });
+
+        mediaRecorderRef.current.start();
+        setIsRecording(true);
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+        toast({
+          variant: "destructive",
+          title: "Microphone Access Denied",
+          description: "Please enable microphone permissions in your browser settings.",
+        });
+      }
     }
   };
 
@@ -324,13 +369,13 @@ function ChatLayout() {
                             disabled={isPending}
                         />
                         <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
-                            <Button variant="ghost" size="icon" className="rounded-full">
+                            <Button type="button" variant="ghost" size="icon" className="rounded-full">
                                 <Paperclip className="w-5 h-5" />
                             </Button>
                         </div>
                         <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
-                            <Button variant="ghost" size="icon" className="rounded-full">
-                                <Mic className="w-5 h-5" />
+                            <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive")} onClick={handleMicClick}>
+                                {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                             </Button>
                             <Button
                                 type="submit"
