@@ -30,6 +30,7 @@ import {
 
 
 const transliterateToDevanagari = (text: string): string => {
+  if (!text) return '';
   const mapping: { [key: string]: string } = {
     'a': 'अ', 'b': 'ब', 'c': 'स', 'd': 'ड', 'e': 'ए', 'f': 'फ', 'g': 'ग', 'h': 'ह', 'i': 'इ', 'j': 'ज', 'k': 'क', 'l': 'ल', 'm': 'म', 'n': 'न', 'o': 'ओ', 'p': 'प', 'q': 'क़', 'r': 'र', 's': 'स', 't': 'ट', 'u': 'उ', 'v': 'व', 'w': 'व', 'x': 'क्स', 'y': 'य', 'z': 'ज़',
     'namaste': 'नमस्ते', 'hello': 'नमस्ते', 'kaise ho': 'कैसे हो', 'how are you': 'कैसे हो', 'dhanyavaad': 'धन्यवाद', 'thank you': 'धन्यवाद', 'shukriya': 'शुक्रिया',
@@ -61,7 +62,6 @@ export async function getAiResponse(
       persona,
     });
     
-    // A simple check to see if the content was deemed unsafe. The flow returns a polite refusal.
     const isSafe = !safetyResult.safeResponse.includes("I cannot respond to that request");
 
     if (!isSafe) {
@@ -103,6 +103,7 @@ export async function getQuickResponse(
 ): Promise<{ content: string; nativeScript: string; isError: boolean; }> {
     let result = "";
     let isError = false;
+    let nativeScript = "";
     try {
         if (action === 'explain') {
             const { simplifiedText } = await explainSimply({ text: lastMessage.content });
@@ -111,7 +112,6 @@ export async function getQuickResponse(
             const { funnierText } = await makeItFun({ text: lastMessage.content });
             result = funnierText;
         } else if (action === 'steps') {
-            // "Give steps" is not an existing flow. We can simulate it by calling the persona flow.
             const stepsPrompt = `Provide a step-by-step guide for: ${lastMessage.content}`;
             const personaResult = await personaBasedResponse({ prompt: stepsPrompt, persona: lastMessage.persona || 'Teacher' });
             result = personaResult.response;
@@ -124,14 +124,14 @@ export async function getQuickResponse(
         isError = true;
     }
 
-    const nativeScript = transliterateToDevanagari(result);
+    nativeScript = transliterateToDevanagari(result);
     return { content: result, nativeScript, isError };
 }
 
 export async function getInitialGreeting(persona: Persona): Promise<{ content: string; nativeScript: string; isError: boolean; }> {
   try {
     const result = await behaviorModeSelection({
-        query: `Start a new conversation and greet me.`,
+        query: `Start a new conversation and greet me in the style of a ${persona}.`,
         previousMode: persona,
     });
     const nativeScript = transliterateToDevanagari(result.response);

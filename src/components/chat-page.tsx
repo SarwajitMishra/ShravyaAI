@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, Code, Brain, Lightbulb, Pencil, Search, Paperclip, Mic } from "lucide-react";
+import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, Code, Brain, Lightbulb, Pencil, Paperclip, Mic } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -46,7 +46,6 @@ const suggestionChips = [
 
 export function ChatPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showLoginPrompt, setShowLoginPrompt] = useState(true);
 
   const {
     conversations,
@@ -65,18 +64,19 @@ export function ChatPage() {
 
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
 
   const [isPersonaChangeDialogOpen, setIsPersonaChangeDialogOpen] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
 
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTo({
-        top: scrollAreaRef.current.scrollHeight,
+    if (viewportRef.current) {
+        viewportRef.current.scrollTo({
+        top: viewportRef.current.scrollHeight,
         behavior: "smooth",
       });
     }
-  }, [activeConversation?.messages]);
+  }, [activeConversation?.messages, isPending]);
 
   const handlePersonaChange = (persona: Persona) => {
     if (persona !== activePersona) {
@@ -103,7 +103,6 @@ export function ChatPage() {
     
     if(!isLoggedIn) {
         setIsLoggedIn(true);
-        setShowLoginPrompt(false);
     }
 
     sendMessage(content, activePersona);
@@ -117,13 +116,11 @@ export function ChatPage() {
   
   const handleLogin = () => {
     setIsLoggedIn(true);
-    setShowLoginPrompt(false);
   }
-
 
   return (
     <SidebarProvider>
-    <div className="flex flex-col h-screen w-full bg-background">
+    <div className="flex h-screen w-full bg-background">
         <AlertDialog open={isPersonaChangeDialogOpen} onOpenChange={setIsPersonaChangeDialogOpen}>
             <AlertDialogContent>
                 <AlertDialogHeader>
@@ -176,7 +173,7 @@ export function ChatPage() {
         )}
 
         <div className="flex flex-col h-screen w-full">
-            <header className="p-4 border-b border-border/50 sticky top-0 z-10">
+            <header className="p-4 border-b border-border/50 sticky top-0 z-10 bg-background/50 backdrop-blur-sm">
                 <div className="flex justify-between items-center max-w-7xl mx-auto">
                     <div className="flex items-center gap-2">
                         {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
@@ -211,9 +208,9 @@ export function ChatPage() {
             </header>
 
             <main className="flex-1 overflow-y-auto">
-                <ScrollArea className="h-full" ref={scrollAreaRef}>
-                <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
-                    {(!activeConversation || activeConversation.messages.length <= 1) && !isPending ? (
+                <ScrollArea className="h-full" viewportRef={viewportRef}>
+                <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto" ref={scrollAreaRef}>
+                    {(!activeConversation || activeConversation.messages.length === 0 || (activeConversation.messages.length === 1 && activeConversation.messages[0].role === 'assistant')) && !isPending ? (
                          <div className="flex flex-col items-center justify-center h-full pt-16">
                             <DiyaIcon className="h-12 w-12 text-primary mb-4" />
                             <h2 className="text-2xl font-bold mb-8">How can I help you today?</h2>
