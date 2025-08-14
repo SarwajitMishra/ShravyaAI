@@ -1,10 +1,10 @@
 "use client";
 
-import type { Message, Persona } from "@/lib/types";
+import type { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Copy, RefreshCw, Languages, Bot, User, AlertTriangle } from "lucide-react";
+import { Copy, RefreshCw, Languages, User, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DiyaIcon } from "@/components/icons";
 import {
@@ -35,6 +35,11 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
 
   const isUser = message.role === "user";
 
+  // Don't render the initial greeting from the assistant
+  if (message.role === 'assistant' && message.id === '0') {
+    return null;
+  }
+
   return (
     <div
       className={cn(
@@ -54,8 +59,8 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
         className={cn(
           "group relative p-4 rounded-2xl max-w-sm md:max-w-md prose prose-sm dark:prose-invert",
           isUser
-            ? "bg-card border-2 border-accent rounded-br-none"
-            : "bg-primary/10 text-primary-foreground rounded-tl-none",
+            ? "bg-secondary text-secondary-foreground rounded-br-none"
+            : "bg-transparent text-foreground rounded-tl-none",
           message.isError && "bg-destructive/20 border border-destructive"
         )}
       >

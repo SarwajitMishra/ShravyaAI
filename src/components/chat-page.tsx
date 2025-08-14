@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, useTransition } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,30 +19,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogClose,
-} from '@/components/ui/dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, X } from "lucide-react";
+import { Send, Sparkles, BookOpen, ListOrdered, ChevronDown, MessageSquare, Trash2, Code, Brain, Lightbulb, Pencil, Search, Paperclip, Mic } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
-import type { Message, Persona, QuickChipAction } from "@/lib/types";
-import { Sidebar, SidebarProvider, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
+import type { Persona } from "@/lib/types";
+import { Sidebar, SidebarProvider, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
+const suggestionChips = [
+    { icon: <Lightbulb className="w-4 h-4" />, text: "Surprise me" },
+    { icon: <Pencil className="w-4 h-4" />, text: "Summarize text" },
+    { icon: <Sparkles className="w-4 h-4" />, text: "Analyze images" },
+    { icon: <ListOrdered className="w-4 h-4" />, text: "Make a plan" },
+    { icon: <Brain className="w-4 h-4" />, text: "Brainstorm" },
+    { icon: <BookOpen className="w-4 h-4" />, text: "Get advice" },
+    { icon: <Code className="w-4 h-4" />, text: "Code" },
+    { icon: <Pencil className="w-4 h-4" />, text: "Help me write" },
+];
+
+
 export function ChatPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(true);
 
   const {
     conversations,
@@ -66,13 +70,6 @@ export function ChatPage() {
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
 
   useEffect(() => {
-    // Show login modal on initial load if not logged in
-    if (!isLoggedIn) {
-        setShowLoginModal(true);
-    }
-  }, [isLoggedIn]);
-
-  useEffect(() => {
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTo({
         top: scrollAreaRef.current.scrollHeight,
@@ -83,7 +80,7 @@ export function ChatPage() {
 
   const handlePersonaChange = (persona: Persona) => {
     if (persona !== activePersona) {
-      if(isLoggedIn){
+      if(isLoggedIn && activeConversation && activeConversation.messages.length > 1){
         setSelectedPersona(persona);
         setIsPersonaChangeDialogOpen(true);
       } else {
@@ -100,9 +97,16 @@ export function ChatPage() {
     setSelectedPersona(null);
   };
   
-  const handleSendMessage = () => {
-    if (!input.trim()) return;
-    sendMessage(input);
+  const handleSendMessage = (message?: string) => {
+    const content = (message || input).trim();
+    if (!content) return;
+    
+    if(!isLoggedIn) {
+        setIsLoggedIn(true);
+        setShowLoginPrompt(false);
+    }
+
+    sendMessage(content, activePersona);
     setInput("");
   };
 
@@ -110,6 +114,12 @@ export function ChatPage() {
     e.preventDefault();
     handleSendMessage();
   };
+  
+  const handleLogin = () => {
+    setIsLoggedIn(true);
+    setShowLoginPrompt(false);
+  }
+
 
   return (
     <SidebarProvider>
@@ -129,60 +139,34 @@ export function ChatPage() {
             </AlertDialogContent>
         </AlertDialog>
 
-        <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
-            <DialogContent className="sm:max-w-[425px] bg-[#343541] text-white border-0">
-                <DialogHeader>
-                    <DialogTitle className="text-center text-2xl font-bold">Log in to unlock Shravya AI</DialogTitle>
-                    <DialogDescription className="text-center text-gray-300">
-                        Just got better at writing, coding, reasoning, and more — now powered by our latest intelligence model.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="flex flex-col gap-4 py-4">
-                    <Button onClick={() => { setIsLoggedIn(true); setShowLoginModal(false); }} className="bg-white text-black hover:bg-gray-200">
-                        Log in
-                    </Button>
-                    <Button variant="secondary" onClick={() => { setIsLoggedIn(true); setShowLoginModal(false); }} className="bg-transparent border border-gray-500 hover:bg-gray-700">
-                        Sign up for free
-                    </Button>
-                </div>
-                 <DialogClose asChild>
-                    <button className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-                        <X className="h-4 w-4" />
-                        <span className="sr-only">Close</span>
-                    </button>
-                </DialogClose>
-            </DialogContent>
-        </Dialog>
-
-
         {isLoggedIn && (
           <Sidebar>
               <SidebarContent className="p-2">
                   <div className="flex h-full flex-col">
                       <div className="p-2 flex-grow">
-                          <h2 className="text-lg font-semibold mb-4 text-primary-foreground">History</h2>
+                          <h2 className="text-lg font-semibold mb-4 text-foreground">History</h2>
                           <ScrollArea className="h-[calc(100vh-150px)]">
                               <SidebarMenu>
-                              {conversations.map((convo) => (
-                                  <SidebarMenuItem key={convo.id}>
-                                      <SidebarMenuButton 
-                                          onClick={() => setActiveConversationId(convo.id)}
-                                          isActive={activeConversation?.id === convo.id}
-                                          className="w-full justify-start"
-                                      >
-                                          <MessageSquare className="h-4 w-4" />
-                                          <span className="truncate">{convo.title}</span>
-                                      </SidebarMenuButton>
-                                      <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
-                                          onClick={() => deleteConversation(convo.id)}
-                                      >
-                                          <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                  </SidebarMenuItem>
-                              ))}
+                                {conversations.map((convo) => (
+                                    <SidebarMenuItem key={convo.id}>
+                                        <SidebarMenuButton 
+                                            onClick={() => setActiveConversationId(convo.id)}
+                                            isActive={activeConversation?.id === convo.id}
+                                            className="w-full justify-start"
+                                        >
+                                            <MessageSquare className="h-4 w-4" />
+                                            <span className="truncate">{convo.title}</span>
+                                        </SidebarMenuButton>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
+                                            onClick={() => deleteConversation(convo.id)}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </SidebarMenuItem>
+                                ))}
                               </SidebarMenu>
                           </ScrollArea>
                       </div>
@@ -192,82 +176,105 @@ export function ChatPage() {
         )}
 
         <div className="flex flex-col h-screen w-full">
-            <header className="p-4 border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
-                <div className="flex justify-between items-center max-w-4xl mx-auto">
+            <header className="p-4 border-b border-border/50 sticky top-0 z-10">
+                <div className="flex justify-between items-center max-w-7xl mx-auto">
                     <div className="flex items-center gap-2">
                         {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
-                        <DiyaIcon className="h-8 w-8 text-primary" />
-                        <h1 className="text-xl font-bold font-headline text-primary-foreground">Shravya AI</h1>
+                         <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" className="pl-0">
+                                    <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
+                                    <ChevronDown className="h-4 w-4 ml-1" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-56">
+                                {personas.map((persona) => (
+                                <DropdownMenuItem
+                                    key={persona}
+                                    onSelect={() => handlePersonaChange(persona)}
+                                    className={cn(activePersona === persona ? 'bg-muted' : '', 'cursor-pointer')}
+                                >
+                                    {persona}
+                                </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="w-40 justify-between">
-                                <span>{activePersona}</span>
-                                <ChevronDown className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-40">
-                            {personas.map((persona) => (
-                            <DropdownMenuItem
-                                key={persona}
-                                onSelect={() => handlePersonaChange(persona)}
-                                className={cn(activePersona === persona ? 'bg-primary/10' : '', 'cursor-pointer')}
-                            >
-                                {persona}
-                            </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    
+                    {!isLoggedIn && (
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" onClick={handleLogin}>Log in</Button>
+                            <Button onClick={handleLogin}>Sign up for free</Button>
+                        </div>
+                    )}
                 </div>
             </header>
 
             <main className="flex-1 overflow-y-auto">
                 <ScrollArea className="h-full" ref={scrollAreaRef}>
                 <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
-                    {activeConversation?.messages.map((message) => (
-                        <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message.id)} onScriptToggle={() => toggleScript(message.id)} />
-                    ))}
+                    {(!activeConversation || activeConversation.messages.length <= 1) && !isPending ? (
+                         <div className="flex flex-col items-center justify-center h-full pt-16">
+                            <DiyaIcon className="h-12 w-12 text-primary mb-4" />
+                            <h2 className="text-2xl font-bold mb-8">How can I help you today?</h2>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-3xl mb-16">
+                                {suggestionChips.map((chip, i) => (
+                                    <Button key={i} variant="outline" className="h-16 flex-col items-start justify-start p-3 text-left" onClick={() => handleSendMessage(chip.text)}>
+                                        {chip.icon}
+                                        <span className="mt-2">{chip.text}</span>
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        activeConversation?.messages.map((message) => (
+                            <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message.id)} onScriptToggle={() => toggleScript(message.id)} />
+                        ))
+                    )}
                     {isPending && <ThinkingBubble />}
                 </div>
                 </ScrollArea>
             </main>
 
-            <footer className="p-4 bg-card/80 backdrop-blur-sm sticky bottom-0 z-10">
+            <footer className="p-4 bg-background sticky bottom-0 z-10">
                 <div className="max-w-4xl mx-auto">
-                <div className="flex items-center justify-center gap-2 mb-3">
-                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => performQuickAction('explain')} disabled={isPending}>
-                        <BookOpen className="w-4 h-4 mr-2" /> Explain simply
-                    </Button>
-                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => performQuickAction('fun')} disabled={isPending}>
-                        <Sparkles className="w-4 h-4 mr-2" /> Make it fun
-                    </Button>
-                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => performQuickAction('steps')} disabled={isPending}>
-                        <ListOrdered className="w-4 h-4 mr-2" /> Give steps
-                    </Button>
-                </div>
-                <form onSubmit={handleSubmit} className="flex items-end gap-2">
-                    <Textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder={`Chat with ${activePersona}...`}
-                    className="flex-1 rounded-2xl min-h-[44px] max-h-48 bg-background resize-none"
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit(e);
-                        }
-                    }}
-                    disabled={isPending}
+                <form onSubmit={handleSubmit} className="relative">
+                     <Textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Ask anything..."
+                        className="flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base"
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSubmit(e);
+                            }
+                        }}
+                        disabled={isPending}
                     />
-                    <Button
-                    type="submit"
-                    size="icon"
-                    className="rounded-full w-11 h-11 shrink-0 bg-accent hover:bg-accent/90"
-                    disabled={isPending || !input.trim()}
-                    >
-                    <Send className="w-5 h-5" />
-                    </Button>
+                    <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
+                        <Button variant="ghost" size="icon" className="rounded-full">
+                            <Paperclip className="w-5 h-5" />
+                        </Button>
+                    </div>
+                    <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
+                        <Button variant="ghost" size="icon" className="rounded-full">
+                            <Mic className="w-5 h-5" />
+                        </Button>
+                        <Button
+                            type="submit"
+                            size="icon"
+                            className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/90"
+                            disabled={isPending || !input.trim()}
+                        >
+                            <Send className="w-5 h-5" />
+                        </Button>
+                    </div>
                 </form>
+                 <p className="text-xs text-center text-muted-foreground mt-2">
+                    By messaging Shravya AI, you agree to our Terms and have read our Privacy Policy.
+                </p>
                 </div>
             </footer>
         </div>
