@@ -8,8 +8,6 @@ import { getAiResponse, getQuickResponse, getInitialGreeting } from '@/app/actio
 const initialPersona: Persona = 'Friend';
 const LOGIN_PROMPT_INTERVAL = 10; // Show prompt after every 10 user messages for guests
 
-let guestConversationCount = 0;
-
 export function useChatHistory(isLoggedIn: boolean) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationIdState] = useState<string | null>(null);
@@ -46,7 +44,6 @@ export function useChatHistory(isLoggedIn: boolean) {
         isArchived: false,
       };
 
-      // For guests, we add to the list of conversations in memory for the session
       setConversations(prev => [...prev, newConversation].sort((a,b) => b.timestamp - a.timestamp));
       setActiveConversationIdState(newConversation.id);
       setActivePersona(persona);
@@ -55,6 +52,7 @@ export function useChatHistory(isLoggedIn: boolean) {
   
   useEffect(() => {
     if (isInitialLoad) {
+      if (isLoggedIn) {
         const savedHistory = localStorage.getItem('shravya-chat-history');
         const savedPersona = localStorage.getItem('shravya-persona') as Persona || initialPersona;
         try {
@@ -71,23 +69,24 @@ export function useChatHistory(isLoggedIn: boolean) {
             console.error("Failed to parse chat history:", e);
             startNewConversation(savedPersona);
         }
-        setIsInitialLoad(false);
+      } else {
+        // For guest users, always start fresh
+        startNewConversation(initialPersona);
+      }
+      setIsInitialLoad(false);
     }
-  }, [isInitialLoad, startNewConversation]);
+  }, [isInitialLoad, isLoggedIn, startNewConversation]);
 
   useEffect(() => {
-    if (!isInitialLoad && conversations.length > 0) {
-      if (conversations.length > 0) {
+    // Only save to localStorage if logged in
+    if (isLoggedIn && !isInitialLoad && conversations.length > 0) {
         localStorage.setItem('shravya-chat-history', JSON.stringify(conversations));
-      } else {
-        localStorage.removeItem('shravya-chat-history');
-      }
+        const activeConvo = conversations.find(c => c.id === activeConversationId);
+        if(activeConvo){
+            localStorage.setItem("shravya-persona", activeConvo.persona);
+        }
     }
-    const activeConvo = conversations.find(c => c.id === activeConversationId);
-    if(!isInitialLoad && activeConvo){
-        localStorage.setItem("shravya-persona", activeConvo.persona);
-    }
-  }, [conversations, activeConversationId, isInitialLoad]);
+  }, [conversations, activeConversationId, isInitialLoad, isLoggedIn]);
 
   const updateActiveConversation = useCallback((updater: (conversation: Conversation) => Conversation) => {
     setConversations(prev =>
@@ -102,37 +101,21 @@ export function useChatHistory(isLoggedIn: boolean) {
       content,
     };
   
-    let currentConversation = conversations.find(c => c.id === activeConversationId);
-    let conversationIdToUpdate = activeConversationId;
+    const currentConversation = conversations.find(c => c.id === activeConversationId);
   
-    // If user is logged in and was on a guest conversation, save it as a new permanent one
-    if (isLoggedIn && currentConversation?.id.startsWith('guest-')) {
-      const newConversation: Conversation = {
-        ...currentConversation,
-        id: Date.now().toString(),
-        title: `[${persona}] - ${content.substring(0, 30)}...`,
-        messages: [...currentConversation.messages.filter(m => m.role !== 'system'), newUserMessage]
-      };
-      conversationIdToUpdate = newConversation.id;
-      
-      setConversations(prev => [...prev.filter(c => c.id !== currentConversation?.id), newConversation].sort((a,b) => b.timestamp - a.timestamp));
-      setActiveConversationIdState(newConversation.id);
-    } else {
-       const updatedMessages = currentConversation ? [...currentConversation.messages.filter(m => m.role !== 'system'), newUserMessage] : [newUserMessage];
-        const newTitle = (currentConversation?.messages.length === 0 || (currentConversation?.messages.length === 1 && currentConversation?.messages[0].role === 'assistant'))
-          ? `[${persona}] - ${content.substring(0, 30)}...` 
-          : currentConversation?.title;
+    const updatedMessages = currentConversation ? [...currentConversation.messages.filter(m => m.role !== 'system'), newUserMessage] : [newUserMessage];
+    const newTitle = (currentConversation?.messages.length === 0 || (currentConversation?.messages.length === 1 && currentConversation?.messages[0].role === 'assistant'))
+      ? `[${persona}] - ${content.substring(0, 30)}...`
+      : currentConversation?.title;
 
-        updateActiveConversation(c => ({
-            ...c,
-            messages: updatedMessages,
-            title: newTitle || c.title,
-        }));
-    }
+    updateActiveConversation(c => ({
+        ...c,
+        messages: updatedMessages,
+        title: newTitle || c.title,
+    }));
   
     startTransition(async () => {
-      // Need to find the conversation again after potential state updates
-      const updatedConversation = conversations.find(c => c.id === conversationIdToUpdate);
+      const updatedConversation = conversations.find(c => c.id === activeConversationId);
       const historyToConsider = updatedConversation?.messages.map(({ role, content }) => ({ role, content })) || [{role: 'user', content}];
       
       const { content: aiContent, nativeScript, isError } = await getAiResponse(historyToConsider, persona);
