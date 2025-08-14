@@ -87,7 +87,7 @@ function ChatLayout() {
 
   const handlePersonaChange = (persona: Persona) => {
     if (persona !== activePersona) {
-      if(isLoggedIn && activeConversation && activeConversation.messages.length > 1){
+      if (isLoggedIn && activeConversation && activeConversation.messages.length > 1) {
         setSelectedPersona(persona);
         setIsPersonaChangeDialogOpen(true);
       } else {

@@ -69,21 +69,36 @@ export function useChatHistory(isLoggedIn: boolean) {
           setActivePersona(p);
         });
     }
-
+    
     const activeConv = conversations.find(c => c.id === activeConversationId);
-    if (!activeConv || (activeConv.messages.length <=1 && activeConv.id !=='temp' )) {
-        if(isLoggedIn){
-            if (activeConv) {
-                setConversations(prev => prev.map(c => c.id === activeConv.id ? {...c, persona: persona, title: `[${persona}] - New Chat`} : c));
-                 setActivePersona(persona);
+    if (!activeConv || (isLoggedIn && activeConv.messages.length > 1 && activeConv.id !=='temp' )) {
+        createNew(persona);
+    } else { // Handles guest users and empty conversations for logged in users
+        if (!isLoggedIn) {
+            const guestConversation = conversations.find(c => c.id === 'temp');
+            if (guestConversation) {
+                 startTransition(async () => {
+                    const { content, nativeScript } = await getInitialGreeting(persona);
+                    const greetingMessage: Message = {
+                        id: Date.now().toString(),
+                        role: 'assistant',
+                        content,
+                        displayContent: content,
+                        nativeScript,
+                        isRoman: true,
+                    };
+                    setConversations(prev => prev.map(c => c.id === 'temp' ? { ...c, persona: persona, messages: [...c.messages, greetingMessage] } : c));
+                    setActivePersona(persona);
+                 });
             } else {
                 createNew(persona);
             }
+        } else if (activeConv) { // Logged in, but conversation is empty
+             setConversations(prev => prev.map(c => c.id === activeConv.id ? {...c, persona: persona, title: `[${persona}] - New Chat`} : c));
+             setActivePersona(persona);
         } else {
-            createNew(persona);
+             createNew(persona);
         }
-    } else {
-        createNew(persona);
     }
   }, [isLoggedIn, conversations, activeConversationId]);
   
