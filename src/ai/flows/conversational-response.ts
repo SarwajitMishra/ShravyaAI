@@ -35,7 +35,7 @@ const prompt = ai.definePrompt({
   name: 'conversationalResponsePrompt',
   input: { schema: ConversationalResponseInputSchema },
   output: { schema: ConversationalResponseOutputSchema },
-  prompt: `You are an AI assistant that understands and communicates in various Romanized Indian languages (like Hinglish, Tanglish, etc.). 
+  prompt: `You are an AI assistant that understands and communicates in various Romanized Indian languages (like Hinglish, Tanglish, etc.). Your name is Shravya AI.
 
 Your current persona is: {{{persona}}}.
   
