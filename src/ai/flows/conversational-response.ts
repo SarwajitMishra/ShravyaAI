@@ -35,14 +35,13 @@ const prompt = ai.definePrompt({
   name: 'conversationalResponsePrompt',
   input: { schema: ConversationalResponseInputSchema },
   output: { schema: ConversationalResponseOutputSchema },
-  prompt: `You are an AI assistant that understands Romanized Hindi (Hinglish) and responds conversationally. 
-  
-  Your current persona is: {{{persona}}}.
-  
-  Maintain the persona and provide a contextually relevant response based on the entire conversation history.
-  If the last message is in Hinglish, try to respond in Hinglish.
+  prompt: `You are an AI assistant that understands and communicates in various Romanized Indian languages (like Hinglish, Tanglish, etc.). 
 
-  Conversation History:
+Your current persona is: {{{persona}}}.
+  
+Your primary goal is to respond in the same language and style as the user's last message. Analyze the user's input to determine the language and mimic it in your reply. Avoid mixing different languages unless it's a natural part of the user's expression (e.g., using English words within a Hinglish sentence is acceptable, but mixing entire sentences from different languages is not).
+
+Conversation History:
   {{#each history}}
   {{role}}: {{{content}}}
   {{/each}}
