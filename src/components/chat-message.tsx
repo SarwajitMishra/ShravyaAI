@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Message } from "@/lib/types";
+import type { AiMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -20,8 +20,8 @@ import { useState } from "react";
 
 
 interface ChatMessageProps {
-  message: Message;
-  onRegenerate: (message: Message) => void;
+  message: AiMessage;
+  onRegenerate: (message: AiMessage) => void;
   onScriptToggle: (messageId: string) => void;
 }
 
@@ -65,11 +65,6 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
   };
 
   const isUser = message.role === "user";
-
-  // Don't render the initial greeting from the assistant
-  if (message.role === 'assistant' && message.id === '0') {
-    return null;
-  }
 
   return (
     <div

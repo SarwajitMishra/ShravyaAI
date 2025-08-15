@@ -2,285 +2,272 @@
 "use client";
 
 import { useState, useEffect, useTransition, useCallback } from 'react';
-import type { Message, Persona, QuickChipAction, Conversation } from '@/lib/types';
-import { getAiResponse, getQuickResponse, getInitialGreeting } from '@/app/actions';
+import { getFirestore, collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import type { Persona, AiSession, AiMessage } from '@/lib/types';
+import { getAiResponse, getInitialGreeting } from '@/app/actions';
+import { useAuth } from '@/app/auth-provider';
+import { app as firebaseApp } from '@/lib/firebase';
 
+const db = getFirestore(firebaseApp);
+const functions = getFunctions(firebaseApp);
 const initialPersona: Persona = 'Friend';
-const LOGIN_PROMPT_INTERVAL = 10; // Show prompt after every 10 user messages for guests
 
-export function useChatHistory(isLoggedIn: boolean) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConversationId, setActiveConversationIdState] = useState<string | null>(null);
+// Callable functions
+const ensureProfile = httpsCallable(functions, 'ensureProfile');
+const createNewSession = httpsCallable(functions, 'createNewSession');
+const appendUserMessage = httpsCallable(functions, 'appendUserMessage');
+const updateSession = httpsCallable(functions, 'updateSession');
+const deleteSession = httpsCallable(functions, 'deleteSession');
+
+export function useChatHistory() {
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState<AiSession[]>([]);
+  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [activePersona, setActivePersona] = useState<Persona>(initialPersona);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const setActiveConversationId = useCallback((id: string | null) => {
-    setActiveConversationIdState(id);
+    setActiveSessionIdState(id);
     if (id) {
-        const conversation = conversations.find(c => c.id === id);
-        if (conversation) {
-            setActivePersona(conversation.persona);
-        }
-    }
-  }, [conversations]);
-
-  const startNewConversation = useCallback((persona: Persona) => {
-    startTransition(async () => {
-      const { content, nativeScript } = await getInitialGreeting(persona);
-      const newConversation: Conversation = {
-        id: Date.now().toString(),
-        title: `[${persona}] - New Chat`,
-        persona: persona,
-        timestamp: Date.now(),
-        messages: [{
-          id: '0',
-          role: 'assistant',
-          content,
-          displayContent: content,
-          nativeScript,
-          isRoman: true,
-        }],
-        isArchived: false,
-      };
-
-      if (isLoggedIn) {
-        setConversations(prev => [...prev, newConversation].sort((a, b) => b.timestamp - a.timestamp));
-        setActiveConversationIdState(newConversation.id);
-      } else {
-        const existingConvoForPersona = conversations.find(c => c.persona === persona);
-        if (existingConvoForPersona) {
-          setActiveConversationIdState(existingConvoForPersona.id);
-        } else {
-          setConversations(prev => [...prev, newConversation].sort((a,b) => b.timestamp - a.timestamp));
-          setActiveConversationIdState(newConversation.id);
-        }
+      const session = sessions.find(s => s.id === id);
+      if (session) {
+        setActivePersona(session.mode);
       }
-      setActivePersona(persona);
-    });
-  }, [isLoggedIn, conversations]);
-  
+    }
+  }, [sessions]);
+
+  // Effect for initial data load (Firestore for users, localStorage for guests)
   useEffect(() => {
     if (isInitialLoad) {
-      if (isLoggedIn) {
-        const savedHistory = localStorage.getItem('shravya-chat-history');
-        const savedPersona = localStorage.getItem('shravya-persona') as Persona || initialPersona;
-        try {
-            const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
-            if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
-                setConversations(parsedHistory);
-                const latestConversation = parsedHistory.sort((a,b) => b.timestamp - a.timestamp)[0];
-                setActiveConversationIdState(latestConversation.id);
-                setActivePersona(latestConversation.persona);
-            } else {
-                startNewConversation(savedPersona);
-            }
-        } catch (e) {
-            console.error("Failed to parse chat history:", e);
-            startNewConversation(savedPersona);
-        }
+      if (user) {
+        ensureProfile();
+        const sessionsQuery = query(collection(db, `aiProfiles/${user.uid}/sessions`), orderBy("updatedAt", "desc"));
+        const unsubscribe = onSnapshot(sessionsQuery, snapshot => {
+          const userSessions = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return { 
+              id: doc.id, 
+              uid: data.uid,
+              title: data.title,
+              mode: data.mode,
+              languageIntent: data.languageIntent,
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt,
+              isArchived: data.isArchived,
+              messages: [] 
+            } as AiSession;
+          });
+          setSessions(userSessions);
+          if (userSessions.length > 0) {
+            setActiveConversationId(userSessions[0].id);
+          }
+          setIsInitialLoad(false);
+        });
+        return () => unsubscribe();
       } else {
-        // For guest users, always start fresh
-        startNewConversation(initialPersona);
-      }
-      setIsInitialLoad(false);
-    }
-  }, [isInitialLoad, isLoggedIn, startNewConversation]);
-
-  useEffect(() => {
-    // Only save to localStorage if logged in
-    if (isLoggedIn && !isInitialLoad && conversations.length > 0) {
-        localStorage.setItem('shravya-chat-history', JSON.stringify(conversations));
-        const activeConvo = conversations.find(c => c.id === activeConversationId);
-        if(activeConvo){
-            localStorage.setItem("shravya-persona", activeConvo.persona);
+        const savedHistory = localStorage.getItem('shravya-guest-history');
+        if (savedHistory) {
+            const parsedSessions: AiSession[] = JSON.parse(savedHistory);
+            setSessions(parsedSessions);
+            if(parsedSessions.length > 0) {
+                const latestSession = parsedSessions.sort((a,b) => b.updatedAt - a.updatedAt)[0];
+                setActiveConversationId(latestSession.id);
+            }
         }
+        setIsInitialLoad(false);
+      }
     }
-  }, [conversations, activeConversationId, isInitialLoad, isLoggedIn]);
+  }, [isInitialLoad, user, setActiveConversationId]);
 
-  const updateActiveConversation = useCallback((updater: (conversation: Conversation) => Conversation) => {
-    setConversations(prev =>
-      prev.map(c => (c.id === activeConversationId ? updater(c) : c))
-    );
-  }, [activeConversationId]);
+  // Effect for saving guest data to localStorage
+  useEffect(() => {
+    if (!user && !isInitialLoad) {
+      localStorage.setItem('shravya-guest-history', JSON.stringify(sessions));
+    }
+  }, [sessions, isInitialLoad, user]);
 
-  const sendMessage = useCallback((content: string, persona: Persona) => {
-    const newUserMessage: Message = {
-      id: Date.now().toString(),
+  // Effect for fetching messages for the active session (Firestore users only)
+  useEffect(() => {
+    if (user && activeSessionId) {
+      const messagesQuery = query(collection(db, `aiProfiles/${user.uid}/sessions/${activeSessionId}/messages`), orderBy("createdAt", "asc"));
+      const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+        const sessionMessages = snapshot.docs.map(doc => ({ ...doc.data() as AiMessage, id: doc.id }));
+        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: sessionMessages } : s));
+      });
+      return () => unsubscribe();
+    }
+  }, [user, activeSessionId]);
+
+
+  const startNewConversation = useCallback(async (persona: Persona) => {
+    startTransition(async () => {
+        const { content, nativeScript } = await getInitialGreeting(persona);
+        const newAiMessage: Omit<AiMessage, 'id'> = {
+          role: 'assistant',
+          content,
+          nativeScriptLine: nativeScript,
+          mode: persona,
+          languageIntent: 'auto',
+          createdAt: Date.now(),
+          showScript: undefined
+        };
+
+        if (user) {
+            const result: any = await createNewSession({ title: `[${persona}] ${content.substring(0,20)}...`, mode: persona, languageIntent: 'auto' });
+            await appendUserMessage({ sessionId: result.data.sessionId, message: newAiMessage });
+            setActiveConversationId(result.data.sessionId);
+        } else {
+            const newSession: AiSession = {
+                id: Date.now().toString(),
+                uid: 'guest',
+                title: `[${persona}] - New Chat`,
+                mode: persona,
+                languageIntent: 'auto',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                messages: [{...newAiMessage, id: '0' }],
+            };
+            setSessions(prev => [newSession, ...prev]);
+            setActiveConversationId(newSession.id);
+        }
+        setActivePersona(persona);
+    });
+  }, [user, setActiveConversationId]);
+
+  const sendMessage = useCallback(async (content: string, persona: Persona) => {
+    const newUserMessage: Omit<AiMessage, 'id' | 'createdAt'> = {
       role: 'user',
       content,
+      mode: persona,
+      languageIntent: 'auto',
+      showScript: undefined
     };
 
-    let historyForAi: Message[] = [];
-  
-    updateActiveConversation(c => {
-        const updatedMessages = [...c.messages.filter(m => m.role !== 'system'), newUserMessage];
-        historyForAi = updatedMessages; // Capture the latest messages for the AI
-        
-        const newTitle = (c.messages.length === 0 || (c.messages.length === 1 && c.messages[0].role === 'assistant'))
-          ? `[${persona}] - ${content.substring(0, 30)}...`
-          : c.title;
-
-        return {
-            ...c,
-            messages: updatedMessages,
-            title: newTitle,
-        };
-    });
-  
-    startTransition(async () => {
-      const { content: aiContent, nativeScript, isError } = await getAiResponse(historyForAi, persona);
-  
-      const newAiMessage: Message = {
-        id: Date.now().toString() + '-ai',
-        role: 'assistant',
-        content: aiContent,
-        displayContent: aiContent,
-        nativeScript,
-        isRoman: true,
-        isError: isError,
-      };
-      
-      updateActiveConversation(c => {
-        let finalMessages: Message[] = [...c.messages, newAiMessage];
-        if (!isLoggedIn) {
-          const userMessagesCount = finalMessages.filter(m => m.role === 'user').length;
-          if (userMessagesCount > 0 && userMessagesCount % LOGIN_PROMPT_INTERVAL === 0) {
-              const loginPromptMessage: Message = {
-                  id: 'login-prompt-' + userMessagesCount,
-                  role: 'system',
-                  content: 'login-prompt',
-              };
-              finalMessages.push(loginPromptMessage);
-          }
-        }
-        return {...c, messages: finalMessages};
-      });
-    });
-  }, [activeConversationId, isLoggedIn, updateActiveConversation]);
-  
-  const regenerateResponse = useCallback((messageId: string) => {
-    const conversation = conversations.find(c => c.id === activeConversationId);
-    if (!conversation) return;
-
-    const messageIndex = conversation.messages.findIndex(m => m.id === messageId);
-    if (messageIndex === -1 || messageIndex === 0) return;
+    if(!user) {
+        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: [...s.messages, {...newUserMessage, id: 'temp-user', createdAt: Date.now()}] } : s));
+    }
     
-    const historyToConsider = conversation.messages.slice(0, messageIndex);
-
     startTransition(async () => {
-        const { content, nativeScript, isError } = await getAiResponse(historyToConsider, conversation.persona);
-        updateActiveConversation(c => {
-            const newMessages = [...c.messages];
-            const currentMessage = newMessages[messageIndex];
-            newMessages[messageIndex] = {
-                ...currentMessage,
-                content,
-                displayContent: content,
-                nativeScript,
-                isRoman: true,
-                isError,
-            };
-            newMessages.splice(messageIndex + 1);
-            return {...c, messages: newMessages};
-        })
+        const activeSession = sessions.find(s => s.id === activeSessionId);
+        if(!activeSession) return;
+        
+        const historyForAi = [...activeSession.messages, {...newUserMessage, id: 'temp-user', createdAt: Date.now()}];
+        
+        const { content: aiContent, nativeScript, isError } = await getAiResponse(historyForAi, persona);
+        
+        const newAiMessage: Omit<AiMessage, 'id' | 'createdAt'> = {
+          role: 'assistant',
+          content: aiContent,
+          nativeScriptLine: nativeScript,
+          isError,
+          mode: persona,
+          languageIntent: 'auto',
+          showScript: undefined
+        };
+
+        if (user && activeSessionId) {
+            await appendUserMessage({ sessionId: activeSessionId, message: newUserMessage });
+            await appendUserMessage({ sessionId: activeSessionId, message: newAiMessage });
+        } else {
+             setSessions(prev => prev.map(s => {
+                if (s.id === activeSessionId) {
+                    const newMessages = s.messages.filter(m => m.id !== 'temp-user');
+                    return { ...s, messages: [...newMessages, {...newUserMessage, id: Date.now().toString(), createdAt: Date.now()}, {...newAiMessage, id: Date.now().toString() + '-ai', createdAt: Date.now()} ]};
+                }
+                return s;
+             }));
+        }
     });
-  }, [conversations, activeConversationId, updateActiveConversation]);
+  }, [user, activeSessionId, sessions]);
 
-  const performQuickAction = useCallback((action: QuickChipAction) => {
-    const conversation = conversations.find(c => c.id === activeConversationId);
-    if (!conversation) return;
+    const deleteConversation = useCallback(async (sessionId: string) => {
+        if(user) {
+            await deleteSession({ sessionId });
+        } else {
+            setSessions(prev => prev.filter(s => s.id !== sessionId));
+        }
+    }, [user]);
 
-    const lastAssistantMessage = [...conversation.messages].reverse().find(m => m.role === 'assistant' && !m.isError);
-    if (!lastAssistantMessage) return;
+    const renameConversation = useCallback(async (sessionId: string, newTitle: string) => {
+        if(user) {
+            await updateSession({ sessionId, updates: { title: newTitle } });
+        } else {
+            setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
+        }
+    }, [user]);
+
+    const archiveConversation = useCallback(async (sessionId: string) => {
+        if(user) {
+            await updateSession({ sessionId, updates: { isArchived: true } });
+        } else {
+            setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, isArchived: true } : s));
+        }
+    }, [user]);
+
+
+  const activeConversation = sessions.find(s => s.id === activeSessionId);
+
+  const regenerateResponse = async (message: AiMessage) => {
+    if (!activeConversation) return;
 
     startTransition(async () => {
-        const { content, nativeScript, isError } = await getQuickResponse(action, lastAssistantMessage);
-        const newAiMessage: Message = {
-            id: Date.now().toString() + "-ai-quick",
-            role: "assistant",
-            content,
-            displayContent: content,
-            nativeScript,
-            isRoman: true,
+        const messageIndex = activeConversation.messages.findIndex(m => m.id === message.id);
+        const history = activeConversation.messages.slice(0, messageIndex);
+        
+        const { content: aiContent, nativeScript, isError } = await getAiResponse(history, activePersona);
+        
+        const newAiMessage: AiMessage = {
+            ...message,
+            content: aiContent,
+            nativeScriptLine: nativeScript,
             isError,
         };
-        updateActiveConversation(c => ({...c, messages: [...c.messages, newAiMessage]}));
-    });
-  }, [activeConversationId, conversations, updateActiveConversation]);
 
-  const toggleScript = useCallback((messageId: string) => {
-      updateActiveConversation(c => {
-          const newMessages = c.messages.map(m => {
-              if (m.id === messageId && m.role === 'assistant' && m.nativeScript) {
-                  const isRoman = !m.isRoman;
-                  return { ...m, isRoman, displayContent: isRoman ? m.content : m.nativeScript };
-              }
-              return m;
-          });
-          return {...c, messages: newMessages};
-      });
-  }, [updateActiveConversation]);
-
-  const deleteConversation = useCallback((conversationId: string) => {
-    setConversations(prev => {
-      const remaining = prev.filter(c => c.id !== conversationId);
-      if (activeConversationId === conversationId) {
-        if (remaining.length > 0) {
-          const newActive = remaining.sort((a,b) => b.timestamp - a.timestamp)[0];
-          setActiveConversationIdState(newActive.id);
-          setActivePersona(newActive.persona);
+        if (user && activeSessionId) {
+            // This needs a specific backend function to replace a message
+            console.warn("Regenerate for logged-in users not fully implemented.");
         } else {
-            setActiveConversationIdState(null);
+            setSessions(prev => prev.map(s => {
+                if (s.id === activeSessionId) {
+                    const newMessages = [...history, newAiMessage];
+                    return { ...s, messages: newMessages };
+                }
+                return s;
+            }));
         }
-      }
-      return remaining;
     });
-  }, [activeConversationId]);
+  };
 
-  const renameConversation = useCallback((conversationId: string, newTitle: string) => {
-    setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: newTitle } : c));
-  }, []);
-
-  const archiveConversation = useCallback((conversationId: string) => {
-    setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, isArchived: true } : c));
-     if (activeConversationId === conversationId) {
-        setActiveConversationIdState(null);
-     }
-  }, [activeConversationId]);
-
-  const dismissLoginPrompt = useCallback((messageId: string) => {
-    updateActiveConversation(c => ({
-        ...c,
-        messages: c.messages.filter(m => m.id !== messageId)
+  const toggleScript = (messageId: string) => {
+    setSessions(prev => prev.map(s => {
+        if (s.id === activeSessionId) {
+            const newMessages = s.messages.map(m => 
+                m.id === messageId ? { ...m, showScript: !m.showScript } : m
+            );
+            return { ...s, messages: newMessages };
+        }
+        return s;
     }));
-  }, [updateActiveConversation]);
-
-
-  useEffect(() => {
-    if (!isInitialLoad && activeConversationId === null) {
-      startNewConversation(activePersona || initialPersona);
-    }
-  }, [activeConversationId, isInitialLoad, startNewConversation, activePersona]);
-
-  const activeConversation = conversations.find(c => c.id === activeConversationId);
+  };
 
   return {
-    conversations: conversations.filter(c => !c.isArchived),
+    conversations: sessions.filter(s => !s.isArchived),
     activeConversation,
-    activeConversationId,
+    activeSessionId,
     setActiveConversationId,
     isPending,
     startNewConversation,
     sendMessage,
     regenerateResponse,
-    performQuickAction,
+    performQuickAction: () => {},
     toggleScript,
     deleteConversation,
     renameConversation,
     archiveConversation,
+    dismissLoginPrompt: () => {},
     activePersona,
     setActivePersona,
-    dismissLoginPrompt,
   };
 }

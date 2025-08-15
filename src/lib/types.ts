@@ -1,26 +1,56 @@
 
-export type Persona = 'Friend' | 'Teacher' | 'Spiritual' | 'Pro' | 'Storyteller';
+// --- Core AI and Data Types ---
 
-export type Message = {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  isError?: boolean;
-  timestamp?: number;
-  persona?: Persona;
-  // for script toggle
-  displayContent?: string;
-  nativeScript?: string;
-  isRoman?: boolean;
+export type Persona = 'Friend' | 'Teacher' | 'Spiritual' | 'Pro' | 'Storyteller';
+export type Mode = Persona;
+export type LangIntent = 'Hindi'|'Tamil'|'Telugu'|'Marathi'|'Bengali'|'Malayalam'|'English'|'auto';
+
+// --- Firestore Models ---
+// These are the base structures for documents stored in Firestore.
+
+export type AiProfile = {
+  uid: string;
+  displayName?: string;
+  defaultMode: Mode;
+  languageIntent: LangIntent;
+  lastScriptToggle?: 'romanized'|'native';
+  createdAt: number;
+  lastSeenAt: number;
 };
+
+export type AiSession = {
+  id: string;
+  uid: string;
+  title: string;
+  mode: Mode;
+  languageIntent: LangIntent;
+  isPremiumSnapshot?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  isArchived?: boolean;
+  // This messages array is a client-side convenience; it's not stored on the session document.
+  messages: AiMessage[]; 
+};
+
+export type AiMessage = {
+  showScript: any;
+  id: string;
+  role: 'user'|'assistant';
+  content: string;
+  romanizedHint?: string;
+  nativeScriptLine?: string;
+  imageUrl?: string;
+  audio?: string;
+  mode: Mode;
+  languageIntent: LangIntent;
+  createdAt: number;
+  // Client-side fields
+  displayContent?: string;
+  isRoman?: boolean;
+  isError?: boolean;
+};
+
+
+// --- UI-Specific Types ---
 
 export type QuickChipAction = 'explain' | 'fun' | 'steps';
-
-export type Conversation = {
-    id: string;
-    title: string;
-    messages: Message[];
-    persona: Persona;
-    timestamp: number;
-    isArchived: boolean;
-};

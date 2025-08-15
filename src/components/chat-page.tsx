@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/app/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,19 +22,21 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square } from "lucide-react";
+import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
-import type { Persona } from "@/lib/types";
+import type { Persona, AiMessage } from "@/lib/types";
 import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { LoginPrompt } from "@/components/login-prompt";
 import { transcribeAudio } from "@/app/actions";
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
@@ -45,8 +48,10 @@ const suggestionChips = [
 ];
 
 function ChatLayout() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { user, loading } = useAuth();
+  const isLoggedIn = !!user;
   const { toast } = useToast();
+  const router = useRouter();
 
   const {
     conversations,
@@ -55,16 +60,13 @@ function ChatLayout() {
     startNewConversation,
     sendMessage,
     regenerateResponse,
-    performQuickAction,
     toggleScript,
     setActiveConversationId,
     deleteConversation,
     renameConversation,
     archiveConversation,
     activePersona,
-    setActivePersona,
-    dismissLoginPrompt,
-  } = useChatHistory(isLoggedIn);
+  } = useChatHistory();
 
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -121,14 +123,6 @@ function ChatLayout() {
     e.preventDefault();
     handleSendMessage();
   };
-  
-  const handleLogin = () => {
-    setIsLoggedIn(true);
-    toast({
-        title: "Logged In",
-        description: "Your chat history is now being saved.",
-    });
-  }
 
   const handleRenameClick = (conversationId: string, currentTitle: string) => {
     setConversationToRename(conversationId);
@@ -166,7 +160,7 @@ function ChatLayout() {
           reader.onloadend = async () => {
             const base64Audio = reader.result as string;
             setInput("Transcribing audio...");
-            const transcription = await transcribeAudio(base64Audio);
+            const { transcription } = await transcribeAudio(base64Audio);
             setInput(transcription);
           };
           stream.getTracks().forEach(track => track.stop());
@@ -185,7 +179,28 @@ function ChatLayout() {
     }
   };
 
-  const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0 || (activeConversation.messages.length === 1 && activeConversation.messages[0].role === 'assistant');
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.push("/login");
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Logout Failed",
+        description: "An error occurred while logging out. Please try again.",
+      });
+    }
+  };
+
+  const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0;
+
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full bg-background items-center justify-center">
+        <ThinkingBubble />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-full bg-background">
@@ -275,6 +290,12 @@ function ChatLayout() {
                             </SidebarMenu>
                         </ScrollArea>
                     </div>
+                    <div className="p-2 border-t border-border/50">
+                        <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
+                            <LogOut className="mr-2 h-4 w-4" />
+                            <span>Logout</span>
+                        </Button>
+                    </div>
                 </div>
             </SidebarContent>
         </Sidebar>
@@ -307,13 +328,6 @@ function ChatLayout() {
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
-                    
-                    {!isLoggedIn && (
-                        <div className="flex items-center gap-2">
-                            <Button variant="ghost" onClick={handleLogin}>Log in</Button>
-                            <Button onClick={handleLogin}>Sign up for free</Button>
-                        </div>
-                    )}
                 </div>
             </header>
 
@@ -326,13 +340,9 @@ function ChatLayout() {
                             <h2 className="text-2xl font-bold mb-8">How can I help you today?</h2>
                         </div>
                     ) : (
-                        activeConversation?.messages.map((message) => 
-                           message.role === 'system' ? (
-                            <LoginPrompt key={message.id} onLogin={handleLogin} onDismiss={() => dismissLoginPrompt(message.id)} />
-                           ) : (
-                            <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message.id)} onScriptToggle={() => toggleScript(message.id)} />
-                           )
-                        )
+                        activeConversation?.messages.map((message: AiMessage) => (
+                            <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message)} onScriptToggle={() => toggleScript(message.id)} />
+                        ))
                     )}
                     {isPending && <ThinkingBubble />}
                 </div>

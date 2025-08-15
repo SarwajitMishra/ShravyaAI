@@ -11,7 +11,7 @@ import {
   makeItFun
 } from '@/ai/flows/make-it-fun';
 import type {
-  Message,
+  AiMessage,
   Persona,
   QuickChipAction
 } from '@/lib/types';
@@ -46,7 +46,7 @@ const transliterateToDevanagari = (text: string): string => {
 };
 
 export async function getAiResponse(
-  history: Message[],
+  history: AiMessage[],
   persona: Persona
 ): Promise < {
   content: string;
@@ -94,7 +94,7 @@ export async function getAiResponse(
 
 export async function getQuickResponse(
   action: QuickChipAction,
-  lastMessage: Message
+  lastMessage: AiMessage
 ): Promise<{ content: string; nativeScript: string; isError: boolean; }> {
     let result = "";
     let isError = false;
@@ -108,7 +108,7 @@ export async function getQuickResponse(
             result = funnierText;
         } else if (action === 'steps') {
             const stepsPrompt = `Provide a step-by-step guide for: ${lastMessage.content}`;
-            const personaResult = await personaBasedResponse({ prompt: stepsPrompt, persona: lastMessage.persona || 'Teacher' });
+            const personaResult = await personaBasedResponse({ prompt: stepsPrompt, persona: lastMessage.mode || 'Teacher' });
             result = personaResult.response;
         } else {
             throw new Error("Invalid quick action");
@@ -139,12 +139,12 @@ export async function getInitialGreeting(persona: Persona): Promise<{ content: s
   }
 }
 
-export async function transcribeAudio(audioDataUri: string): Promise<string> {
+export async function transcribeAudio(audioDataUri: string): Promise<{transcription: string}> {
     try {
         const { transcription } = await transcribeAudioFlow({ audioDataUri });
-        return transcription;
+        return { transcription };
     } catch (error) {
         console.error("Error transcribing audio:", error);
-        return "Sorry, I couldn't understand that. Please try again.";
+        return { transcription: "Sorry, I couldn't understand that. Please try again."};
     }
 }
