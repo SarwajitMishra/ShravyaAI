@@ -7,7 +7,7 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { z } from 'zod';
 
 const WebSearchInputSchema = z.object({
   query: z.string().describe('The search query to look up on the internet.'),
@@ -47,7 +47,7 @@ export const webSearch = ai.defineTool(
         },
         {
           title: 'ICC World Cup 2024 Schedule',
-          snippet: 'The official schedule for the upcoming ICC T20 World Cup has been announced. The tournament will begin on June 1st.',
+          snippet: 'The official schedule for the upcoming ICC T20 World Cup has be en announced. The tournament will begin on June 1st.',
           link: 'https://www.example-icc.com/schedule',
         },
       ];

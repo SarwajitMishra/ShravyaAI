@@ -9,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const SafetyAndToneInputSchema = z.object({
   userInput: z.string().describe('The user input to be checked for safety and tone.'),

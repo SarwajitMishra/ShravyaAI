@@ -11,7 +11,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const ExplainSimplyInputSchema = z.object({
   text: z.string().describe('The text to be simplified.'),

@@ -9,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const BehaviorModeSelectionInputSchema = z.object({
   query: z.string().describe('The user query.'),

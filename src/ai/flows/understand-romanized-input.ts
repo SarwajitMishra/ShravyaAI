@@ -9,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const UnderstandRomanizedInputInputSchema = z.object({
   romanizedInput: z.string().describe('The user input in Romanized Hindi (Hinglish).'),
