@@ -13,8 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { auth, RecaptchaVerifier, signInWithPhoneNumber } from "@/lib/firebase";
-import { ConfirmationResult } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
 
 export default function PhoneAuthPage() {
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -126,7 +126,7 @@ export default function PhoneAuthPage() {
               </>
             )}
             {error && <p className="text-red-500 text-sm">{error}</p>}
-             <div id="recaptcha-container"></div>
+            <div id="recaptcha-container"></div>
           </div>
           <div className="mt-4 text-center text-sm">
             <Link href="/login" className="underline">

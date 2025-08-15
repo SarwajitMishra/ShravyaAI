@@ -26,7 +26,6 @@ export function useChatHistory() {
   const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [activePersona, setActivePersona] = useState<Persona>(initialPersona);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   const setActiveConversationId = useCallback((id: string | null) => {
     setActiveSessionIdState(id);
@@ -38,57 +37,44 @@ export function useChatHistory() {
     }
   }, [sessions]);
 
-  // Effect for initial data load (Firestore for users, localStorage for guests)
+  // Effect for fetching the list of conversations.
   useEffect(() => {
-    if (isInitialLoad) {
-      if (user) {
-        ensureProfile();
-        const sessionsQuery = query(collection(db, `aiProfiles/${user.uid}/sessions`), orderBy("updatedAt", "desc"));
-        const unsubscribe = onSnapshot(sessionsQuery, snapshot => {
-          const userSessions = snapshot.docs.map(doc => {
-            const data = doc.data();
-            return { 
-              id: doc.id, 
-              uid: data.uid,
-              title: data.title,
-              mode: data.mode,
-              languageIntent: data.languageIntent,
-              createdAt: data.createdAt,
-              updatedAt: data.updatedAt,
-              isArchived: data.isArchived,
-              messages: [] 
-            } as AiSession;
-          });
-          setSessions(userSessions);
-          if (userSessions.length > 0) {
-            setActiveConversationId(userSessions[0].id);
-          }
-          setIsInitialLoad(false);
-        });
-        return () => unsubscribe();
-      } else {
-        const savedHistory = localStorage.getItem('shravya-guest-history');
-        if (savedHistory) {
-            const parsedSessions: AiSession[] = JSON.parse(savedHistory);
-            setSessions(parsedSessions);
-            if(parsedSessions.length > 0) {
-                const latestSession = parsedSessions.sort((a,b) => b.updatedAt - a.updatedAt)[0];
-                setActiveConversationId(latestSession.id);
-            }
-        }
-        setIsInitialLoad(false);
+    if (user) {
+      ensureProfile();
+      const sessionsQuery = query(collection(db, `aiProfiles/${user.uid}/sessions`), orderBy("updatedAt", "desc"));
+      const unsubscribe = onSnapshot(sessionsQuery, snapshot => {
+        const userSessions = snapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id,
+        }) as AiSession);
+        setSessions(userSessions);
+      });
+      return () => unsubscribe();
+    } else {
+      const savedHistory = localStorage.getItem('shravya-guest-history');
+      if (savedHistory) {
+        const parsedSessions: AiSession[] = JSON.parse(savedHistory);
+        setSessions(parsedSessions);
       }
     }
-  }, [isInitialLoad, user, setActiveConversationId]);
+  }, [user]);
+
+  // Effect for setting the initial active session when the list loads.
+  useEffect(() => {
+    if (sessions.length > 0 && !activeSessionId) {
+      const latestSession = sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      setActiveConversationId(latestSession.id);
+    }
+  }, [sessions, activeSessionId, setActiveConversationId]);
 
   // Effect for saving guest data to localStorage
   useEffect(() => {
-    if (!user && !isInitialLoad) {
+    if (!user) {
       localStorage.setItem('shravya-guest-history', JSON.stringify(sessions));
     }
-  }, [sessions, isInitialLoad, user]);
+  }, [sessions, user]);
 
-  // Effect for fetching messages for the active session (Firestore users only)
+  // Effect for fetching messages for the active session.
   useEffect(() => {
     if (user && activeSessionId) {
       const messagesQuery = query(collection(db, `aiProfiles/${user.uid}/sessions/${activeSessionId}/messages`), orderBy("createdAt", "asc"));
@@ -103,106 +89,151 @@ export function useChatHistory() {
 
   const startNewConversation = useCallback(async (persona: Persona) => {
     startTransition(async () => {
-        const { content, nativeScript } = await getInitialGreeting(persona);
-        const newAiMessage: Omit<AiMessage, 'id'> = {
-          role: 'assistant',
-          content,
-          nativeScriptLine: nativeScript,
-          mode: persona,
-          languageIntent: 'auto',
+      const { content, nativeScript } = await getInitialGreeting(persona);
+      const newAiMessage: Omit<AiMessage, 'id'> = {
+        role: 'assistant',
+        content,
+        nativeScriptLine: nativeScript,
+        mode: persona,
+        languageIntent: 'auto',
+        createdAt: Date.now(),
+        showScript: undefined
+      };
+  
+      const newSessionData = {
+        title: `[${persona}] ${content.substring(0, 20)}...`,
+        mode: persona,
+        languageIntent: 'auto' as const,
+      };
+  
+      if (user) {
+        const result: any = await createNewSession(newSessionData);
+        const newSessionId = result.data.sessionId;
+        await appendUserMessage({ sessionId: newSessionId, message: newAiMessage });
+        setActiveConversationId(newSessionId);
+      } else {
+        const newSession: AiSession = {
+          id: Date.now().toString(),
+          uid: 'guest',
           createdAt: Date.now(),
-          showScript: undefined
+          updatedAt: Date.now(),
+          messages: [{ ...newAiMessage, id: '0' }],
+          ...newSessionData,
         };
-
-        if (user) {
-            const result: any = await createNewSession({ title: `[${persona}] ${content.substring(0,20)}...`, mode: persona, languageIntent: 'auto' });
-            await appendUserMessage({ sessionId: result.data.sessionId, message: newAiMessage });
-            setActiveConversationId(result.data.sessionId);
-        } else {
-            const newSession: AiSession = {
-                id: Date.now().toString(),
-                uid: 'guest',
-                title: `[${persona}] - New Chat`,
-                mode: persona,
-                languageIntent: 'auto',
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                messages: [{...newAiMessage, id: '0' }],
-            };
-            setSessions(prev => [newSession, ...prev]);
-            setActiveConversationId(newSession.id);
-        }
-        setActivePersona(persona);
+        setSessions(prev => [newSession, ...prev]);
+        setActiveConversationId(newSession.id);
+      }
+      setActivePersona(persona);
     });
   }, [user, setActiveConversationId]);
+  
 
   const sendMessage = useCallback(async (content: string, persona: Persona) => {
     const newUserMessage: Omit<AiMessage, 'id' | 'createdAt'> = {
-      role: 'user',
-      content,
-      mode: persona,
-      languageIntent: 'auto',
-      showScript: undefined
+        role: 'user',
+        content,
+        mode: persona,
+        languageIntent: 'auto',
+        showScript: undefined,
     };
 
-    if(!user) {
-        setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: [...s.messages, {...newUserMessage, id: 'temp-user', createdAt: Date.now()}] } : s));
-    }
-    
     startTransition(async () => {
-        const activeSession = sessions.find(s => s.id === activeSessionId);
-        if(!activeSession) return;
+        let currentSessionId = activeSessionId;
+        let sessionToUpdate: AiSession | undefined = sessions.find(s => s.id === currentSessionId);
+
+        if (!sessionToUpdate) {
+            console.log("[useChatHistory] No active session, creating a new one.");
+            
+            const newSessionData = {
+                title: content.substring(0, 30) + "...",
+                mode: persona,
+                languageIntent: 'auto' as const,
+            };
+
+            const result: any = user 
+                ? await createNewSession(newSessionData)
+                : { data: { sessionId: Date.now().toString() } };
+
+            const newSessionId = result.data.sessionId;
+            
+            const newSession: AiSession = {
+                id: newSessionId,
+                uid: user ? user.uid : 'guest',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                messages: [],
+                ...newSessionData
+            };
+            
+            setSessions(prev => [newSession, ...prev]);
+            setActiveConversationId(newSessionId);
+            
+            currentSessionId = newSessionId;
+            sessionToUpdate = newSession;
+        }
+
+        if (!sessionToUpdate || !currentSessionId) {
+            console.error("[useChatHistory] Failed to get a valid session. Exiting.");
+            return;
+        }
+
+        const historyForAi = [...sessionToUpdate.messages, { ...newUserMessage, id: 'temp-user', createdAt: Date.now() }];
         
-        const historyForAi = [...activeSession.messages, {...newUserMessage, id: 'temp-user', createdAt: Date.now()}];
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: historyForAi as AiMessage[] } : s));
         
         const { content: aiContent, nativeScript, isError } = await getAiResponse(historyForAi, persona);
         
         const newAiMessage: Omit<AiMessage, 'id' | 'createdAt'> = {
-          role: 'assistant',
-          content: aiContent,
-          nativeScriptLine: nativeScript,
-          isError,
-          mode: persona,
-          languageIntent: 'auto',
-          showScript: undefined
+            role: 'assistant',
+            content: aiContent,
+            nativeScriptLine: nativeScript,
+            isError,
+            mode: persona,
+            languageIntent: 'auto',
+            showScript: undefined
         };
 
-        if (user && activeSessionId) {
-            await appendUserMessage({ sessionId: activeSessionId, message: newUserMessage });
-            await appendUserMessage({ sessionId: activeSessionId, message: newAiMessage });
+        if (user) {
+            await appendUserMessage({ sessionId: currentSessionId, message: newUserMessage });
+            await appendUserMessage({ sessionId: currentSessionId, message: newAiMessage });
         } else {
-             setSessions(prev => prev.map(s => {
-                if (s.id === activeSessionId) {
-                    const newMessages = s.messages.filter(m => m.id !== 'temp-user');
-                    return { ...s, messages: [...newMessages, {...newUserMessage, id: Date.now().toString(), createdAt: Date.now()}, {...newAiMessage, id: Date.now().toString() + '-ai', createdAt: Date.now()} ]};
+            setSessions(prev => prev.map(s => {
+                if (s.id === currentSessionId) {
+                    const finalMessages = s.messages.filter(m => m.id !== 'temp-user');
+                    return { ...s, messages: [...finalMessages, { ...newUserMessage, id: Date.now().toString(), createdAt: Date.now() }, { ...newAiMessage, id: Date.now().toString() + '-ai', createdAt: Date.now() }] };
                 }
                 return s;
-             }));
+            }));
         }
     });
-  }, [user, activeSessionId, sessions]);
+}, [user, activeSessionId, sessions, setActiveConversationId]);
 
-    const deleteConversation = useCallback(async (sessionId: string) => {
-        if(user) {
-            await deleteSession({ sessionId });
-        } else {
-            setSessions(prev => prev.filter(s => s.id !== sessionId));
-        }
-    }, [user]);
+
+const deleteConversation = useCallback(async (sessionId: string) => {
+    const remainingSessions = sessions.filter(s => s.id !== sessionId);
+    setSessions(remainingSessions);
+
+    if (activeSessionId === sessionId) {
+        setActiveConversationId(remainingSessions.length > 0 ? remainingSessions[0].id : null);
+    }
+
+    if (user) {
+        await deleteSession({ sessionId });
+    }
+}, [user, sessions, activeSessionId, setActiveConversationId]);
+
 
     const renameConversation = useCallback(async (sessionId: string, newTitle: string) => {
-        if(user) {
+        setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
+        if (user) {
             await updateSession({ sessionId, updates: { title: newTitle } });
-        } else {
-            setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
         }
     }, [user]);
 
     const archiveConversation = useCallback(async (sessionId: string) => {
+        setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, isArchived: true } : s));
         if(user) {
             await updateSession({ sessionId, updates: { isArchived: true } });
-        } else {
-            setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, isArchived: true } : s));
         }
     }, [user]);
 

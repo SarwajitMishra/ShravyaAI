@@ -2,5 +2,11 @@
   "hosting": {
     "site": "aishravya",
     "source": "."
+  },
+  "functions": {
+    "source": "functions"
+  },
+  "firestore": {
+    "indexes": "firestore.indexes.json"
   }
 }

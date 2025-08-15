@@ -66,7 +66,12 @@ const conversationalResponseFlow = ai.defineFlow(
     outputSchema: ConversationalResponseOutputSchema,
   },
   async (input) => {
+    console.log('conversationalResponseFlow input:', JSON.stringify(input, null, 2));
+
     const { output } = await prompt(input);
+
+    console.log('conversationalResponseFlow output:', JSON.stringify(output, null, 2));
+
     return output!;
   }
 );

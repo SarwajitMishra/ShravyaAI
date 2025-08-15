@@ -35,7 +35,7 @@ const transliterateToDevanagari = (text: string): string => {
   if (!text) return '';
   const mapping: { [key: string]: string } = {
     'a': 'अ', 'b': 'ब', 'c': 'स', 'd': 'ड', 'e': 'ए', 'f': 'फ', 'g': 'ग', 'h': 'ह', 'i': 'इ', 'j': 'ज', 'k': 'क', 'l': 'ल', 'm': 'म', 'n': 'न', 'o': 'ओ', 'p': 'प', 'q': 'क़', 'r': 'र', 's': 'स', 't': 'ट', 'u': 'उ', 'v': 'व', 'w': 'व', 'x': 'क्स', 'y': 'य', 'z': 'ज़',
-    'namaste': 'नमस्ते', 'hello': 'नमस्ते', 'kaise ho': 'कैसे हो', 'how are you': 'कैसे हो', 'dhanyavaad': 'धन्यवाद', 'thank you': 'धन्यवाद', 'shukriya': 'शुक्रिया',
+    'namaste': 'नमस्ते', 'hello': 'नमस्ते', 'kaise ho': ' कैसे हो', 'how are you': 'कैसे हो', 'dhanyavaad': 'धन्यवाद', 'thank you': 'धन्यवाद', 'shukriya': 'शुक्रिया',
     'main': 'मैं', 'theek': 'ठीक', 'hoon': 'हूँ',
     'friend': 'मित्र', 'teacher': 'शिक्षक', 'spiritual': 'आध्यात्मिक', 'pro': 'विशेषज्ञ', 'storyteller': 'कथावाचक'
   };
@@ -53,7 +53,9 @@ export async function getAiResponse(
   nativeScript: string;
   isError: boolean;
 } > {
-  const latestUserMessage = history.find(m => m.role === 'user');
+  console.log('getAiResponse received:', JSON.stringify({ history, persona }, null, 2));
+
+  const userPrompt = history[history.length - 1]?.content || '';
   let responseContent = "";
   let nativeScript = "";
   let isError = false;
@@ -62,7 +64,7 @@ export async function getAiResponse(
 
   try {
     const safetyResult = await checkSafetyAndTone({
-      userInput: latestUserMessage?.content || '',
+      userInput: userPrompt,
       persona,
     });
     
@@ -84,6 +86,8 @@ export async function getAiResponse(
   }
   
   nativeScript = transliterateToDevanagari(responseContent);
+
+  console.log('getAiResponse sending:', JSON.stringify({ content: responseContent, nativeScript, isError }, null, 2));
 
   return {
     content: responseContent,
