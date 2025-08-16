@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,6 +17,12 @@ import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "firebase/auth";
 
+declare global {
+    interface Window {
+        recaptchaVerifier?: RecaptchaVerifier;
+    }
+}
+
 export default function PhoneAuthPage() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState("");
@@ -23,6 +30,14 @@ export default function PhoneAuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [otpSent, setOtpSent] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
+            'size': 'invisible',
+        });
+    }
+  }, []);
 
   const handleSendOtp = async () => {
     setError(null);
@@ -32,14 +47,19 @@ export default function PhoneAuthPage() {
     }
 
     try {
-      const recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
-        'size': 'invisible',
-      });
-      const confirmation = await signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
-      setConfirmationResult(confirmation);
-      setOtpSent(true);
+      const verifier = window.recaptchaVerifier;
+      if (verifier) {
+          const confirmation = await signInWithPhoneNumber(auth, phoneNumber, verifier);
+          setConfirmationResult(confirmation);
+          setOtpSent(true);
+      }
     } catch (error: any) {
       setError(error.message);
+      // This can happen if the reCAPTCHA challenge is not completed.
+      // We can try to render it again.
+      if (window.recaptchaVerifier) {
+        window.recaptchaVerifier.render().catch(console.error);
+      }
     }
   };
 
@@ -53,7 +73,7 @@ export default function PhoneAuthPage() {
     if (confirmationResult) {
       try {
         await confirmationResult.confirm(otp);
-        router.push("/");
+        router.push("/chat");
       } catch (error: any) {
         setError(error.message);
       }
@@ -125,7 +145,7 @@ export default function PhoneAuthPage() {
                 </div>
               </>
             )}
-            {error && <p className="text-red-500 text-sm">{error}</p>}
+            {error && <p className="text-destructive text-sm">{error}</p>}
             <div id="recaptcha-container"></div>
           </div>
           <div className="mt-4 text-center text-sm">
