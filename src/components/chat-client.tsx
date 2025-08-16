@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut } from "lucide-react";
+import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus } from "lucide-react";
 import { DiyaIcon } from "@/components/icons";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -37,6 +37,7 @@ import { transcribeAudio } from "@/app/actions";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
@@ -50,6 +51,7 @@ const suggestionChips = [
 export function ChatClient() {
   const { user, loading } = useAuth();
   const isLoggedIn = !!user;
+  const isGuest = user?.isAnonymous === true;
   const { toast } = useToast();
   const router = useRouter();
 
@@ -66,15 +68,13 @@ export function ChatClient() {
     renameConversation,
     archiveConversation,
     activePersona,
+    handlePersonaChange,
   } = useChatHistory();
 
   const [input, setInput] = useState("");
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-
-  const [isPersonaChangeDialogOpen, setIsPersonaChangeDialogOpen] = useState(false);
-  const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
-
+  
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [conversationToRename, setConversationToRename] = useState<string | null>(null);
   const [newConversationName, setNewConversationName] = useState("");
@@ -94,25 +94,6 @@ export function ChatClient() {
       });
     }
   }, [activeConversation?.messages, isPending]);
-
-  const handlePersonaChange = (persona: Persona) => {
-    if (persona !== activePersona) {
-      if (activeConversation && activeConversation.messages.length > 1) {
-        setSelectedPersona(persona);
-        setIsPersonaChangeDialogOpen(true);
-      } else {
-        startNewConversation(persona);
-      }
-    }
-  };
-
-  const confirmPersonaChange = () => {
-    if (selectedPersona) {
-      startNewConversation(selectedPersona);
-    }
-    setIsPersonaChangeDialogOpen(false);
-    setSelectedPersona(null);
-  };
   
   const handleSendMessage = (message?: string) => {
     const content = (message || input).trim();
@@ -198,7 +179,7 @@ export function ChatClient() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      router.push("/login");
+      router.push("/");
     } catch (error) {
       toast({
         variant: "destructive",
@@ -208,7 +189,7 @@ export function ChatClient() {
     }
   };
 
-  const showWelcomeScreen = !activeConversation || !activeConversation.messages || activeConversation.messages.length === 0;
+  const showWelcomeScreen = !activeConversation;
 
   if (loading) {
     return (
@@ -220,21 +201,6 @@ export function ChatClient() {
 
   return (
     <div className="flex h-screen w-full bg-background">
-        <AlertDialog open={isPersonaChangeDialogOpen} onOpenChange={setIsPersonaChangeDialogOpen}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                <AlertDialogTitle>Change Persona?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Changing the persona will start a new conversation and save the current one. Are you sure you want to continue?
-                </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setSelectedPersona(null)}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={confirmPersonaChange}>Continue</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-
         <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
             <DialogContent>
                 <DialogHeader>
@@ -274,7 +240,12 @@ export function ChatClient() {
             <SidebarContent className="p-2">
                 <div className="flex h-full flex-col">
                     <div className="p-2 flex-grow">
-                        <h2 className="text-lg font-semibold mb-4 text-foreground">History</h2>
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-lg font-semibold text-foreground">History</h2>
+                            <Button variant="ghost" size="icon" onClick={() => startNewConversation(activePersona)}>
+                                <Plus className="h-4 w-4" />
+                            </Button>
+                        </div>
                         <ScrollArea className="h-[calc(100vh-150px)]">
                             <SidebarMenu>
                             {conversations?.map((convo) => (
@@ -322,10 +293,21 @@ export function ChatClient() {
                         </ScrollArea>
                     </div>
                     <div className="p-2 border-t border-border/50">
-                        <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
-                            <LogOut className="mr-2 h-4 w-4" />
-                            <span>Logout</span>
-                        </Button>
+                        {isGuest ? (
+                            <div className="space-y-2">
+                                <Button variant="outline" className="w-full justify-start" asChild>
+                                    <Link href="/login"><LogIn className="mr-2 h-4 w-4" />Login</Link>
+                                </Button>
+                                <Button className="w-full justify-start bg-primary-saffron" asChild>
+                                    <Link href="/signup"><UserPlus className="mr-2 h-4 w-4" />Sign Up to Save</Link>
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
+                                <LogOut className="mr-2 h-4 w-4" />
+                                <span>Logout</span>
+                            </Button>
+                        )}
                     </div>
                 </div>
             </SidebarContent>

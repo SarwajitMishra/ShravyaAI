@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword, signInWithPopup } from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithPopup, linkWithCredential, EmailAuthProvider, linkWithPopup } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
 
 export default function SignupPage() {
@@ -25,8 +25,14 @@ export default function SignupPage() {
 
   const handleSignup = async () => {
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      router.push("/");
+      const user = auth.currentUser;
+      if (user && user.isAnonymous) {
+        const credential = EmailAuthProvider.credential(email, password);
+        await linkWithCredential(user, credential);
+      } else {
+        await createUserWithEmailAndPassword(auth, email, password);
+      }
+      router.push("/chat");
     } catch (error: any) {
       setError(error.message);
     }
@@ -34,8 +40,13 @@ export default function SignupPage() {
 
   const handleGoogleSignup = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
-      router.push("/");
+      const user = auth.currentUser;
+      if (user && user.isAnonymous) {
+        await linkWithPopup(user, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
+      router.push("/chat");
     } catch (error: any) {
       setError(error.message);
     }

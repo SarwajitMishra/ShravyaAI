@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, createContext, useContext } from "react";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { onAuthStateChanged, User, signInAnonymously } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter, usePathname } from "next/navigation";
 
@@ -20,15 +20,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
+      if (user) {
+        setUser(user);
+        setLoading(false);
+      } else {
+        signInAnonymously(auth)
+          .then((anonymousUser) => {
+            setUser(anonymousUser.user);
+          })
+          .catch((error) => {
+            console.error("Anonymous sign-in failed:", error);
+          })
+          .finally(() => {
+            setLoading(false);
+          });
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!loading && !user && pathname !== "/login" && pathname !== "/signup") {
+    if (!loading && !user && pathname !== "/" && pathname !== "/login" && pathname !== "/signup") {
       router.push("/login");
     }
   }, [user, loading, pathname, router]);
