@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { DiyaIcon } from '@/components/icons';
+import { BrandIcon } from '@/components/brand-icon';
 import { MessageSquare, Users, Palette, UploadCloud, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useEffect } from 'react';
@@ -38,7 +38,7 @@ export function LandingPage() {
       <header className="sticky top-0 z-50 w-full bg-beige/80 backdrop-blur-sm">
         <div className="container mx-auto flex h-16 items-center justify-between px-4 md:px-6">
           <Link href="/" className="flex items-center gap-2">
-            <DiyaIcon className="h-8 w-8 text-primary-saffron" />
+            <BrandIcon className="h-8 w-8 text-primary-saffron" />
             <span className="text-xl font-bold font-headline text-secondary-teal">Shravya AI</span>
           </Link>
           <div className="flex items-center gap-2">
@@ -60,7 +60,7 @@ export function LandingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <DiyaIcon className="h-24 w-24 text-primary-saffron mb-6" />
+          <BrandIcon className="h-24 w-24 text-primary-saffron mb-6" />
           <h1 className="text-4xl md:text-6xl font-bold font-headline text-secondary-teal">
             Mindful Conversations, <br />
             Indian Soul.

@@ -34,7 +34,7 @@ export function useChatHistory() {
     if (!user) return;
     setIsPending(true);
     try {
-      const result: any = await createNewSession({ title: `[${persona}] New Chat`, mode: persona, languageIntent: 'auto' });
+      const result: any = await createNewSession({ title: `New Chat`, mode: persona, languageIntent: 'auto' });
       setActiveSessionIdState(result.data.sessionId);
     } finally {
       setIsPending(false);
@@ -90,18 +90,18 @@ export function useChatHistory() {
     }
   }, [sessions, activePersona, startNewConversation]);
 
-  const sendMessage = useCallback(async (content: string, persona: Persona) => {
+  const sendMessage = useCallback(async (content: string, persona: Persona, imageUrl?: string) => {
     if (!user || !activeSessionId) return;
     const sessionId = activeSessionId;
     setIsPending(true);
     try {
       const isFirstMessage = messages.length === 0;
 
-      if (isFirstMessage) {
-        await updateSession({ sessionId, updates: { title: `[${persona}] ${content.substring(0, 20)}...` } });
+      if (isFirstMessage && content) {
+        await updateSession({ sessionId, updates: { title: content.substring(0, 20) } });
       }
 
-      const userMessage: Omit<AiMessage, 'id'> = { role: 'user', content, mode: persona, languageIntent: 'auto', createdAt: Date.now(), showScript: false };
+      const userMessage: Omit<AiMessage, 'id'> = { role: 'user', content, imageUrl, mode: persona, languageIntent: 'auto', createdAt: Date.now(), showScript: false };
       await appendUserMessage({ sessionId, message: userMessage });
 
       const messagesSnapshot = await getDocs(query(collection(db, `aiProfiles/${user.uid}/sessions/${sessionId}/messages`), orderBy("createdAt", "asc")));

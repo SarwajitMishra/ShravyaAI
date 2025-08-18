@@ -1,6 +1,7 @@
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { uploadImage } from "./upload-image.js";
 initializeApp();
 const db = getFirestore();
 /** ------------------ v2 Callables ------------------ */
@@ -169,3 +170,4 @@ export const performWebSearch = onRequest({ secrets: ["GOOGLE_SEARCH_API_KEY", "
         res.status(500).send({ error: "An unexpected error occurred." });
     }
 });
+export { uploadImage };

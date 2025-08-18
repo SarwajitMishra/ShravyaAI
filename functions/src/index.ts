@@ -2,7 +2,8 @@
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { Mode, LangIntent, AiProfile, AiMessage } from "./lib/types";
+import type { Mode, LangIntent, AiProfile, AiMessage } from "./lib/types";
+import { uploadImage } from "./upload-image";
 
 initializeApp();
 const db = getFirestore();
@@ -24,11 +25,6 @@ interface UpdateSessionResult { success: boolean }
 
 interface DeleteSessionData { sessionId: string }
 interface DeleteSessionResult { success: boolean }
-
-interface PerformWebSearchData { query: string; }
-interface PerformWebSearchResult { results: { title: string; link: string; snippet: string; }[]; }
-
-
 
 /** ------------------ v2 Callables ------------------ */
 
@@ -258,4 +254,4 @@ export const performWebSearch = onRequest(
   }
 );
 
-
+export { uploadImage };

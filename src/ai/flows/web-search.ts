@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { app } from '@/lib/firebase'; // We only need the app for its config
 
 // This is the URL of our new, secure HTTPS function.
-const searchFunctionUrl = `https://us-central1-${app.options.projectId}.cloudfunctions.net/performWebSearch`;
+const searchFunctionUrl = `https://us-central1-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net/performWebSearch`;
 
 const WebSearchInputSchema = z.object({
   query: z.string().describe('The search query to look up on the internet.'),
@@ -29,7 +29,8 @@ export const webSearch = ai.defineTool(
       });
 
       if (!response.ok) {
-        console.error("Backend search function returned an error:", response.status);
+        const errorBody = await response.text();
+        console.error("Backend search function returned an error:", response.status, errorBody);
         return { results: [] };
       }
 

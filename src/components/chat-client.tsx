@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuPortal,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -23,20 +24,25 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ChevronDown, MessageSquare, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus } from "lucide-react";
-import { DiyaIcon } from "@/components/icons";
+import { Send, ChevronDown, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus, User as UserIcon, Settings, LifeBuoy, Image as ImageIcon, FileText, Camera, ScreenShare } from "lucide-react";
+import { BrandIcon } from "@/components/brand-icon";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
-import type { Persona, AiMessage } from "@/lib/types";
-import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction } from "@/components/ui/sidebar";
+import type { Persona, AiMessage, AiSession } from "@/lib/types";
+import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction, SidebarGroup, SidebarGroupLabel, SidebarGroupContent } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { transcribeAudio } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { app as firebaseApp } from '@/lib/firebase';
+
+const functions = getFunctions(firebaseApp);
+const uploadImage = httpsCallable(functions, 'uploadImage');
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
@@ -88,6 +94,8 @@ export function ChatClient() {
 
   const [input, setInput] = useState("");
   const viewportRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
   
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [conversationToRename, setConversationToRename] = useState<string | null>(null);
@@ -122,11 +130,11 @@ export function ChatClient() {
     }
   }, [isGuest, activeConversation?.messages]);
   
-  const handleSendMessage = (message?: string) => {
+  const handleSendMessage = (message?: string, imageUrl?: string) => {
     const content = (message || input).trim();
-    if (!content) return;
+    if (!content && !imageUrl) return;
     
-    sendMessage(content, activePersona);
+    sendMessage(content, activePersona, imageUrl);
     setInput("");
   };
   
@@ -239,6 +247,15 @@ export function ChatClient() {
   
   const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0;
 
+  const groupedConversations = conversations?.reduce((acc, convo) => {
+    const persona = convo.mode || 'Friend';
+    if (!acc[persona]) {
+      acc[persona] = [];
+    }
+    acc[persona].push(convo);
+    return acc;
+  }, {} as Record<Persona, (Omit<AiSession, 'messages'>)[]>);
+
   if (loading) {
     return (
       <div className="flex h-screen w-full bg-background items-center justify-center">
@@ -247,8 +264,57 @@ export function ChatClient() {
     );
   }
 
+  const handleImageUpload = () => imageInputRef.current?.click();
+  const handleDocumentUpload = () => documentInputRef.current?.click();
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      toast({ title: 'Uploading...', description: `Your file "${file.name}" is being uploaded.` });
+      
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        const base64ImageData = reader.result?.toString().split(',')[1];
+        if (base64ImageData) {
+          try {
+            const result: any = await uploadImage({ imageData: base64ImageData, fileName: file.name });
+            const imageUrl = result.data.fileUrl;
+            
+            // Now, send a message with the image URL
+            handleSendMessage(`Image uploaded: ${file.name}`, imageUrl);
+
+            toast({ title: 'Upload Successful', description: 'Your image is ready.' });
+          } catch (error) {
+            toast({ variant: 'destructive', title: 'Upload Failed', description: 'Could not upload your image.' });
+          }
+        }
+      };
+    }
+    event.target.value = '';
+  };
+
+  const handleComingSoon = () => {
+    toast({ title: 'Coming Soon!', description: 'This feature is under development.' });
+  }
+
   return (
     <div className="flex h-screen w-full bg-background">
+      <input
+        type="file"
+        ref={imageInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={documentInputRef}
+        onChange={handleFileChange}
+        accept=".pdf,.doc,.docx,.txt"
+        className="hidden"
+      />
+
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
             <DialogContent>
                 <DialogHeader>
@@ -326,71 +392,114 @@ export function ChatClient() {
                 <div className="flex h-full flex-col">
                     <div className="p-2 flex-grow">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-semibold text-foreground">History</h2>
+                            <h2 className="text-lg font-semibold text-foreground">Chats</h2>
                             <Button variant="ghost" size="icon" onClick={() => setNewChatDialogOpen(true)}>
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>
-                        <ScrollArea className="h-[calc(100vh-150px)]">
+                        <ScrollArea className="h-[calc(100vh-200px)]">
                             <SidebarMenu>
-                            {conversations?.map((convo) => (
-                                <SidebarMenuItem key={convo.id}>
-                                    <SidebarMenuButton 
-                                        className="pr-8"
-                                        onClick={() => setActiveConversationId(convo.id)}
-                                        isActive={activeConversation?.id === convo.id}
-                                    >
-                                        <MessageSquare className="h-4 w-4" />
-                                        <span className="truncate">{convo.title}</span>
-                                    </SidebarMenuButton>
-                                    <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <SidebarMenuAction className="z-10">
-                                        <MoreHorizontal className="h-4 w-4" />
-                                      </SidebarMenuAction>
-                                    </DropdownMenuTrigger>
-                                        <DropdownMenuPortal>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
-                                                    <Pencil className="mr-2 h-4 w-4" />
-                                                    <span>Rename</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
-                                                    <Share2 className="mr-2 h-4 w-4" />
-                                                    <span>Share</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => archiveConversation(convo.id, !convo.isArchived)}>
-                                                    <Archive className="mr-2 h-4 w-4" />
-                                                    <span>{convo.isArchived ? 'Unarchive' : 'Archive'}</span>
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => handleDeleteClick(convo.id)} className="text-destructive">
-                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                    <span>Delete</span>
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenuPortal>
-                                    </DropdownMenu>
-                                </SidebarMenuItem>
+                            {groupedConversations && Object.entries(groupedConversations).map(([persona, convos]) => (
+                                <SidebarGroup key={persona}>
+                                    <SidebarGroupLabel>{persona}</SidebarGroupLabel>
+                                    <SidebarGroupContent>
+                                        <SidebarMenu>
+                                        {convos.map((convo) => (
+                                            <SidebarMenuItem key={convo.id}>
+                                                <SidebarMenuButton 
+                                                    onClick={() => setActiveConversationId(convo.id)}
+                                                    isActive={activeConversation?.id === convo.id}
+                                                    className="justify-start"
+                                                >
+                                                    <span className="truncate min-w-0 flex-1 text-left">
+                                                      {convo.title.replace(`[${persona}] `, '')}
+                                                    </span>
+                                                </SidebarMenuButton>
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                      <SidebarMenuAction showOnHover>
+                                                        <MoreHorizontal />
+                                                      </SidebarMenuAction>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuPortal>
+                                                        <DropdownMenuContent align="end">
+                                                            <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
+                                                                <Pencil className="mr-2 h-4 w-4" />
+                                                                <span>Rename</span>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
+                                                                <Share2 className="mr-2 h-4 w-4" />
+                                                                <span>Share</span>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => archiveConversation(convo.id, !convo.isArchived)}>
+                                                                <Archive className="mr-2 h-4 w-4" />
+                                                                <span>{convo.isArchived ? 'Unarchive' : 'Archive'}</span>
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => handleDeleteClick(convo.id)} className="text-destructive">
+                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                <span>Delete</span>
+                                                            </DropdownMenuItem>
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenuPortal>
+                                                </DropdownMenu>
+                                            </SidebarMenuItem>
+                                        ))}
+                                        </SidebarMenu>
+                                    </SidebarGroupContent>
+                                </SidebarGroup>
                             ))}
                             </SidebarMenu>
                         </ScrollArea>
                     </div>
                     <div className="p-2 border-t border-border/50">
-                        {isGuest ? (
-                            <div className="space-y-2">
-                                <Button variant="outline" className="w-full justify-start" asChild>
-                                    <Link href="/login"><LogIn className="mr-2 h-4 w-4" />Login</Link>
-                                </Button>
-                                <Button className="w-full justify-start bg-primary-saffron" asChild>
-                                    <Link href="/signup"><UserPlus className="mr-2 h-4 w-4" />Sign Up to Save</Link>
-                                </Button>
-                            </div>
-                        ) : (
-                            <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="w-full justify-start items-center gap-2 px-2">
+                            <UserIcon className="h-5 w-5" />
+                            <span className="truncate">
+                              {isGuest ? "Guest User" : user.email || user.phoneNumber || "User"}
+                            </span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          {isGuest ? (
+                            <>
+                              <DropdownMenuItem asChild>
+                                <Link href="/login"><LogIn className="mr-2 h-4 w-4" />Login</Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href="/signup"><UserPlus className="mr-2 h-4 w-4" />Sign Up</Link>
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <>
+                              <DropdownMenuItem asChild>
+                                <Link href="/profile">
+                                  <UserIcon className="mr-2 h-4 w-4" />
+                                  <span>Profile</span>
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href="/settings">
+                                  <Settings className="mr-2 h-4 w-4" />
+                                  <span>Settings</span>
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link href="/help">
+                                  <LifeBuoy className="mr-2 h-4 w-4" />
+                                  <span>Help Center</span>
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={handleLogout}>
                                 <LogOut className="mr-2 h-4 w-4" />
                                 <span>Logout</span>
-                            </Button>
-                        )}
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                 </div>
             </SidebarContent>
@@ -402,7 +511,7 @@ export function ChatClient() {
              <div className="flex justify-between items-center max-w-7xl mx-auto">
                     <div className="flex items-center gap-4">
                         {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
-                        <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
+                        <BrandIcon className="h-8 w-8 text-primary" />
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline">
@@ -423,6 +532,33 @@ export function ChatClient() {
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
+                    {activeConversation && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                    <MoreHorizontal />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleRenameClick(activeConversation.id, activeConversation.title)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    <span>Rename</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
+                                    <Share2 className="mr-2 h-4 w-4" />
+                                    <span>Share</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => archiveConversation(activeConversation.id, !activeConversation.isArchived)}>
+                                    <Archive className="mr-2 h-4 w-4" />
+                                    <span>{activeConversation.isArchived ? 'Unarchive' : 'Archive'}</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDeleteClick(activeConversation.id)} className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>Delete</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
                 </div>
         </header>
 
@@ -431,7 +567,7 @@ export function ChatClient() {
             <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-4xl mx-auto">
                 {showWelcomeScreen && !isPending ? (
                      <div className="flex flex-col items-center justify-center h-full pt-16">
-                        <DiyaIcon className="h-12 w-12 text-primary mb-4" />
+                        <BrandIcon className="h-12 w-12 text-primary mb-4" />
                         <h2 className="text-2xl font-bold mb-2">{greeting}</h2>
                         <p className="text-muted-foreground mb-6">{personaDetails[activePersona].description}</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-md">
@@ -469,9 +605,37 @@ export function ChatClient() {
                         disabled={isPending}
                     />
                     <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
-                        <Button type="button" variant="ghost" size="icon" className="rounded-full">
-                            <Paperclip className="h-5 w-5" />
-                        </Button>
+                        {isGuest ? (
+                            <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => setGuestPromptOpen(true)}>
+                                <Paperclip className="h-5 w-5" />
+                            </Button>
+                        ) : (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button type="button" variant="ghost" size="icon" className="rounded-full">
+                                        <Paperclip className="h-5 w-5" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                    <DropdownMenuItem onClick={handleImageUpload}>
+                                        <ImageIcon className="mr-2 h-4 w-4" />
+                                        Upload Image
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleDocumentUpload}>
+                                        <FileText className="mr-2 h-4 w-4" />
+                                        Upload Document
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleComingSoon}>
+                                        <ScreenShare className="mr-2 h-4 w-4" />
+                                        Take Screenshot
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={handleComingSoon}>
+                                        <Camera className="mr-2 h-4 w-4" />
+                                        Take a Picture
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                     </div>
                     <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
                         <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive")} onClick={handleMicClick}>
@@ -480,7 +644,7 @@ export function ChatClient() {
                         <Button
                             type="submit"
                             size="icon"
-                            className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/90"
+                            className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/hover"
                             disabled={isPending || !input.trim()}
                         >
                             <Send className="h-5 w-5" />
