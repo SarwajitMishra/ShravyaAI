@@ -8,7 +8,6 @@ import { SpeedInsights } from "@vercel/speed-insights/next"
 
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/app/auth-provider";
-import AuthWrapper from "@/app/auth-wrapper";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -39,7 +38,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={GeistSans.className} suppressHydrationWarning>
         <AuthProvider>
-          <AuthWrapper>{children}</AuthWrapper>
+          {children}
           <Toaster />
           <Analytics />
           <SpeedInsights />

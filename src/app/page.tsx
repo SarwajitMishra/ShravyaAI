@@ -1,6 +1,11 @@
 
+import AuthWrapper from '@/app/auth-wrapper';
 import { LandingPage } from '@/components/landing-page';
 
 export default function Home() {
-  return <LandingPage />;
+  return (
+    <AuthWrapper>
+      <LandingPage />
+    </AuthWrapper>
+  );
 }
