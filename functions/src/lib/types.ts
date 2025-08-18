@@ -1,7 +1,7 @@
 
 // --- Core AI and Data Types ---
 
-export type Persona = "Friend" | "Teacher" | "Spiritual" | "Pro" | 
+export type Persona = "Friend" | "Teacher" | "Spiritual" | "Pro" |
 "Storyteller";
 export type Mode = Persona;
 export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|

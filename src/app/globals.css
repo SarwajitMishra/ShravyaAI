@@ -56,3 +56,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+[data-accent-color="green"] {
+  --accent: 142 76% 36%;
+}
+[data-accent-color="red"] {
+  --accent: 0 72% 51%;
+}
+[data-accent-color="pink"] {
+  --accent: 340 82% 52%;
+}
+[data-accent-color="magenta"] {
+  --accent: 300 81% 54%;
+}

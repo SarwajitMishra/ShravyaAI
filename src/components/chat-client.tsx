@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ChevronDown, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus, User as UserIcon, Settings, LifeBuoy, Image as ImageIcon, FileText, Camera, ScreenShare, X, Loader2 } from "lucide-react";
+import { Send, ChevronDown, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus, User as UserIcon, Settings, LifeBuoy, Image as ImageIcon, FileText, Camera, ScreenShare, X, Loader2, Phone } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
@@ -46,6 +46,7 @@ const functions = getFunctions(firebaseApp);
 const uploadImage = httpsCallable(functions, 'uploadImage');
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
+const ENABLE_VOICE_MODE = true; // Feature Flag
 
 const personaDetails = {
   Friend: {
@@ -106,6 +107,7 @@ export function ChatClient() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [conversationToRename, setConversationToRename] = useState<string | null>(null);
@@ -122,13 +124,17 @@ export function ChatClient() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  useEffect(() => {
+  const scrollToBottom = () => {
     if (viewportRef.current) {
-        viewportRef.current.scrollTo({
+      viewportRef.current.scrollTo({
         top: viewportRef.current.scrollHeight,
         behavior: "smooth",
       });
     }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
   }, [activeConversation?.messages, isPending]);
   
   // Load guest prompt dismissals from localStorage on mount
@@ -220,7 +226,13 @@ export function ChatClient() {
       setIsRecording(false);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            noiseSuppression: true,
+            echoCancellation: true,
+            autoGainControl: true,
+          } 
+        });
         mediaRecorderRef.current = new MediaRecorder(stream);
         audioChunksRef.current = [];
 
@@ -234,7 +246,7 @@ export function ChatClient() {
           reader.readAsDataURL(audioBlob);
           reader.onloadend = async () => {
             const base64Audio = reader.result as string;
-            setInput("Transcribing audio...");
+            setInput("Transcribing audio, please wait...");
             const languageIntent = activeConversation?.languageIntent || 'auto';
             const { transcription } = await transcribeAudio(base64Audio, languageIntent);
             setInput(transcription);
@@ -258,7 +270,6 @@ export function ChatClient() {
   const handleLogout = async () => {
     try {
       await logout();
-      router.push("/");
     } catch (error) {
       toast({
         variant: "destructive",
@@ -338,7 +349,6 @@ export function ChatClient() {
     event.target.value = '';
   };
   
-
   const handleComingSoon = () => {
     toast({ title: 'Coming Soon!', description: 'This feature is under development.' });
   }
@@ -662,11 +672,13 @@ export function ChatClient() {
                       </div>
                     )}
                     <Textarea
+                        ref={textareaRef}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask anything..."
+                        onFocus={scrollToBottom}
+                        placeholder={isRecording ? "Listening..." : "Ask anything..."}
                         className={cn(
-                          "flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base",
+                          "flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-40 pl-12 resize-none text-base",
                           (stagedImageUrls.length > 0 || uploadingFiles.length > 0) && "rounded-t-none"
                         )}
                         onKeyDown={(e) => {
@@ -677,7 +689,7 @@ export function ChatClient() {
                         }}
                         disabled={isPending}
                     />
-                    <div className="absolute top-1/2 -translate-y-1_2 left-3 flex items-center">
+                    <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
                         {isGuest ? (
                             <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => setGuestPromptOpen(true)}>
                                 <Paperclip className="h-5 w-5" />
@@ -711,7 +723,12 @@ export function ChatClient() {
                         )}
                     </div>
                     <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
-                        <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive")} onClick={handleMicClick}>
+                        {ENABLE_VOICE_MODE && (
+                            <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => router.push('/voice')}>
+                                <Phone className="h-5 w-5" />
+                            </Button>
+                        )}
+                        <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive animate-pulse")} onClick={handleMicClick}>
                             {isRecording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                         </Button>
                         <Button

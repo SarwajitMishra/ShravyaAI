@@ -4,58 +4,58 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { webSearch } from './web-search';
-import { MessageData, Role } from 'genkit';
 
-const MessageSchema = z.object({
-  role: z.enum(['user', 'assistant']),
-  content: z.string(),
-});
-
+// Define the input schema for the conversationalResponse flow
 const ConversationalResponseInputSchema = z.object({
-  history: z.array(MessageSchema).describe('The entire conversation history.'),
-  persona: z.string().describe('The persona to use for the response (e.g., Friend, Teacher, Spiritual, Pro, Storyteller).'),
+  history: z.array(z.object({
+    role: z.string(),
+    content: z.string(),
+  })),
+  persona: z.string(),
 });
 export type ConversationalResponseInput = z.infer<typeof ConversationalResponseInputSchema>;
 
+// Define the output schema for the conversationalResponse flow
 const ConversationalResponseOutputSchema = z.object({
-  response: z.string().describe('The contextually relevant response.'),
+  response: z.string(),
 });
 export type ConversationalResponseOutput = z.infer<typeof ConversationalResponseOutputSchema>;
 
-export async function conversationalResponse(input: ConversationalResponseInput): Promise<ConversationalResponseOutput> {
-  return conversationalResponseFlow(input);
-}
-
-const conversationalResponseFlow = ai.defineFlow(
+export const conversationalResponse = ai.defineFlow(
   {
-    name: 'conversationalResponseFlow',
+    name: 'conversationalResponse',
     inputSchema: ConversationalResponseInputSchema,
     outputSchema: ConversationalResponseOutputSchema,
   },
   async (input) => {
-    const systemPrompt = `You are an AI assistant named Shravya AI. Your current persona is: ${input.persona}.
-      
-      Your primary goal is to respond in the same language and style as the user's last message.
-      
-      **CRITICAL INSTRUCTION:** If the user's query requires information about current events, news, weather, stock prices, or any other topic that requires up-to-date, real-time information, you **MUST** use the 'webSearch' tool. For all other queries, you can use your internal knowledge. Do not mention that you are searching the web.
-      
-      Analyze the entire chat history to provide a contextually relevant response.`;
-
-    const messages: MessageData[] = [
-        { role: 'system', content: [{ text: systemPrompt }] },
-        ...input.history.map(msg => ({
-            role: (msg.role === 'assistant' ? 'model' : 'user') as Role,
-            content: [{ text: msg.content }],
-        }))
-    ];
+    const { history, persona } = input;
+    const userPrompt = history[history.length - 1]?.content || '';
 
     const llmResponse = await ai.generate({
-      messages: messages,
+      prompt: `You are an AI assistant with a specific persona: ${persona}. 
+      Your conversation history with the user is as follows:
+      ${JSON.stringify(history)}
+
+      You have access to a tool called 'webSearch' that can search the internet for real-time information.
+
+      **CRITICAL INSTRUCTION:** You must decide whether to use your internal knowledge or the 'webSearch' tool based on these rules:
+
+      1.  **Use the 'webSearch' tool ONLY for these specific cases:**
+          *   If the user explicitly asks you to search the web (e.g., "search for...", "look up...", "find information on...").
+          *   For queries about news, current events, stock prices, weather, or other topics that require real-time, up-to-the-minute information.
+          *   For questions about recent developments or public figures where information is likely to have changed.
+
+      2.  **For ALL OTHER queries, you MUST use your internal knowledge.** This includes, but is not limited to:
+          *   Recipes, DIY instructions, and "how-to" guides.
+          *   Creative tasks like writing stories, poems, or code.
+          *   General knowledge questions about history, science, and established facts.
+          *   Explanations of concepts.
+
+      Based on the latest user prompt ("${userPrompt}"), generate a helpful and conversational response that is consistent with your persona.`,
+      model: 'googleai/gemini-1.5-flash-latest',
       tools: [webSearch],
-      model: 'googleai/gemini-2.0-flash',
     });
 
-    const output = llmResponse.text;
-    return { response: output };
+    return { response: llmResponse.text };
   }
 );

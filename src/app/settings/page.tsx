@@ -1,7 +1,8 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -16,17 +17,21 @@ const functions = getFunctions();
 const deleteAccountData = httpsCallable(functions, 'deleteAccountData');
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
-  const [theme, setTheme] = useState('system');
+  const { theme, setTheme } = useTheme();
   const [accentColor, setAccentColor] = useState('green');
+
+  useEffect(() => {
+    document.body.dataset.accentColor = accentColor;
+  }, [accentColor]);
 
   const handleDeleteData = async () => {
     try {
       await deleteAccountData();
       toast({ title: 'Data Deleted', description: 'Your account data has been successfully deleted.' });
-      router.push('/chat');
+      await logout();
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete account data.' });
     }

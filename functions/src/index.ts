@@ -2,6 +2,7 @@
 import {onCall, HttpsError, onRequest} from "firebase-functions/v2/https";
 import {initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
+import {getAuth} from "firebase-admin/auth";
 import type {Mode, LangIntent, AiProfile, AiMessage} from "./lib/types.js";
 import {uploadImage} from "./upload-image.js";
 
@@ -241,6 +242,24 @@ export const deleteSession = onCall<DeleteSessionData,
         }
       }
   );
+
+export const deleteAccountData = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated",
+        "This function must be called while authenticated.");
+  }
+  const {uid} = request.auth;
+  try {
+    // Delete Firestore data
+    await db.recursiveDelete(db.collection("aiProfiles").doc(uid));
+    // Delete Firebase Auth user
+    await getAuth().deleteUser(uid);
+    return {success: true};
+  } catch (error) {
+    console.error("Error deleting account data:", error);
+    throw new HttpsError("internal", "Failed to delete account data.", error);
+  }
+});
 
 export const performWebSearch = onRequest(
     {secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"]},

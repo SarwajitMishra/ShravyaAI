@@ -8,6 +8,8 @@ import { SpeedInsights } from "@vercel/speed-insights/next"
 
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/app/auth-provider";
+import AuthWrapper from "@/app/auth-wrapper";
+import { ThemeProvider } from "@/app/theme-provider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -38,10 +40,16 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={GeistSans.className} suppressHydrationWarning>
         <AuthProvider>
-          {children}
-          <Toaster />
-          <Analytics />
-          <SpeedInsights />
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+          >
+            <AuthWrapper>{children}</AuthWrapper>
+            <Toaster />
+            <Analytics />
+            <SpeedInsights />
+          </ThemeProvider>
         </AuthProvider>
       </body>
     </html>
