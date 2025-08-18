@@ -1,12 +1,33 @@
-import type { Metadata } from 'next';
-import './globals.css';
-import { Toaster } from '@/components/ui/toaster';
-import { AuthProvider } from './auth-provider';
+
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
+import { Poppins } from "next/font/google";
+import { GeistSans } from 'geist/font/sans';
+import { Analytics } from "@vercel/analytics/react"
+import { SpeedInsights } from "@vercel/speed-insights/next"
+
+import { Toaster } from "@/components/ui/toaster";
+import { AuthProvider } from "@/app/auth-provider";
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"] });
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ['400', '600', '700'],
+  variable: '--font-poppins',
+});
 
 export const metadata: Metadata = {
-  title: 'Shravya AI',
-  description: 'Your culturally-aware AI assistant.',
+  title: "Shravya AI",
+  description: "Your personal AI companion for mindful conversations.",
+  icons: {
+    icon: "icon.png",
+  },
 };
+
+export const viewport: Viewport = {
+  themeColor: "#FF9933",
+}
 
 export default function RootLayout({
   children,
@@ -15,16 +36,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
-      </head>
-      <body className="font-body antialiased dark" suppressHydrationWarning>
+      <body className={GeistSans.className} suppressHydrationWarning>
         <AuthProvider>
           {children}
+          <Toaster />
+          <Analytics />
+          <SpeedInsights />
         </AuthProvider>
-        <Toaster />
       </body>
     </html>
   );

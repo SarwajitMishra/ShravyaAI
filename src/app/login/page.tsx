@@ -24,6 +24,7 @@ export default function LoginPage() {
   const router = useRouter();
 
   const handleLogin = async () => {
+    setError(null);
     try {
       await signInWithEmailAndPassword(auth, email, password);
       router.push("/chat");
@@ -33,6 +34,7 @@ export default function LoginPage() {
   };
 
   const handleGoogleLogin = async () => {
+    setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
       router.push("/chat");

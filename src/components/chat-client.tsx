@@ -9,6 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -29,27 +30,43 @@ import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
 import type { Persona, AiMessage } from "@/lib/types";
-import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction } from "@/components/ui/sidebar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { transcribeAudio } from "@/app/actions";
-import { auth } from "@/lib/firebase";
-import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
 
-const suggestionChips = [
-    { text: "Surprise me" },
-    { text: "Summarize text" },
-    { text: "Analyze images" },
-    { text: "Make a plan" },
-];
+const personaDetails = {
+  Friend: {
+    description: "I'm here to be a supportive and casual companion. Let's chat about anything!",
+    prompts: ["Let's brainstorm some ideas", "Give me some encouragement", "Tell me a fun fact"],
+  },
+  Teacher: {
+    description: "I can help you learn and understand new things. Ask me a question!",
+    prompts: ["Explain a complex topic simply", "Help me with my homework", "What's the history of..."],
+  },
+  Spiritual: {
+    description: "I can offer guidance and reflections for a moment of calm. How are you feeling?",
+    prompts: ["Give me a mindfulness exercise", "Offer a new perspective on...", "Share a piece of wisdom"],
+  },
+  Pro: {
+    description: "I provide concise, factual, and data-driven answers. I can also search the web.",
+    prompts: ["Summarize this article for me", "What are today's headlines?", "Help me code a function that..."],
+  },
+  Storyteller: {
+    description: "I can weave stories and make conversations more fun. What should we create a story about?",
+    prompts: ["Tell me a bedtime story", "Make up a story about...", "Turn this concept into a narrative"],
+  },
+};
+
+const GUEST_MESSAGE_LIMIT = 10;
 
 export function ChatClient() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const isLoggedIn = !!user;
   const isGuest = user?.isAnonymous === true;
   const { toast } = useToast();
@@ -61,8 +78,6 @@ export function ChatClient() {
     isPending,
     startNewConversation,
     sendMessage,
-    regenerateResponse,
-    toggleScript,
     setActiveConversationId,
     deleteConversation,
     renameConversation,
@@ -72,7 +87,6 @@ export function ChatClient() {
   } = useChatHistory();
 
   const [input, setInput] = useState("");
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -81,6 +95,9 @@ export function ChatClient() {
   
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
+  const [guestPromptOpen, setGuestPromptOpen] = useState(false);
 
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -94,6 +111,16 @@ export function ChatClient() {
       });
     }
   }, [activeConversation?.messages, isPending]);
+
+  // Effect to check for guest user message limit
+  useEffect(() => {
+    if (isGuest && activeConversation?.messages) {
+      const userMessages = activeConversation.messages.filter(m => m.role === 'user').length;
+      if (userMessages >= GUEST_MESSAGE_LIMIT) {
+        setGuestPromptOpen(true);
+      }
+    }
+  }, [isGuest, activeConversation?.messages]);
   
   const handleSendMessage = (message?: string) => {
     const content = (message || input).trim();
@@ -101,6 +128,10 @@ export function ChatClient() {
     
     sendMessage(content, activePersona);
     setInput("");
+  };
+  
+  const handlePromptStarterClick = (prompt: string) => {
+    setInput(prompt + ' ');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -134,6 +165,11 @@ export function ChatClient() {
     }
     setDeleteDialogOpen(false);
     setConversationToDelete(null);
+  };
+  
+  const handleNewChat = (persona: Persona) => {
+    startNewConversation(persona);
+    setNewChatDialogOpen(false);
   };
 
   const handleMicClick = async () => {
@@ -178,7 +214,7 @@ export function ChatClient() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      await logout();
       router.push("/");
     } catch (error) {
       toast({
@@ -189,7 +225,19 @@ export function ChatClient() {
     }
   };
 
-  const showWelcomeScreen = !activeConversation;
+  const [greeting, setGreeting] = useState("");
+
+  useEffect(() => {
+    const getGreeting = () => {
+      const hour = new Date().getHours();
+      if (hour < 12) return "Good Morning";
+      if (hour < 18) return "Good Afternoon";
+      return "Good Evening";
+    };
+    setGreeting(getGreeting());
+  }, []);
+  
+  const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0;
 
   if (loading) {
     return (
@@ -201,10 +249,11 @@ export function ChatClient() {
 
   return (
     <div className="flex h-screen w-full bg-background">
-        <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Rename Conversation</DialogTitle>
+                    <DialogDescription>Enter a new name for your conversation below.</DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
                     <Input 
@@ -234,6 +283,42 @@ export function ChatClient() {
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={newChatDialogOpen} onOpenChange={setNewChatDialogOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Start a New Chat</DialogTitle>
+                    <DialogDescription>Please select a persona to start your new chat.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 grid grid-cols-2 gap-4">
+                    {personas.map(persona => (
+                        <Button key={persona} variant="outline" onClick={() => handleNewChat(persona)}>
+                            {persona}
+                        </Button>
+                    ))}
+                </div>
+            </DialogContent>
+        </Dialog>
+
+        <AlertDialog open={guestPromptOpen} onOpenChange={setGuestPromptOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Unlock More Features!</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Sign up or log in to save your chat history, upload images and documents, and access more features.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Continue as Guest</AlertDialogCancel>
+                    <AlertDialogAction asChild>
+                        <Link href="/login">Login</Link>
+                    </AlertDialogAction>
+                    <AlertDialogAction asChild>
+                        <Link href="/signup">Sign Up</Link>
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
         
       {isLoggedIn && (
         <Sidebar>
@@ -242,7 +327,7 @@ export function ChatClient() {
                     <div className="p-2 flex-grow">
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-lg font-semibold text-foreground">History</h2>
-                            <Button variant="ghost" size="icon" onClick={() => startNewConversation(activePersona)}>
+                            <Button variant="ghost" size="icon" onClick={() => setNewChatDialogOpen(true)}>
                                 <Plus className="h-4 w-4" />
                             </Button>
                         </div>
@@ -251,41 +336,39 @@ export function ChatClient() {
                             {conversations?.map((convo) => (
                                 <SidebarMenuItem key={convo.id}>
                                     <SidebarMenuButton 
+                                        className="pr-8"
                                         onClick={() => setActiveConversationId(convo.id)}
                                         isActive={activeConversation?.id === convo.id}
-                                        className="w-full justify-start pr-10"
                                     >
                                         <MessageSquare className="h-4 w-4" />
                                         <span className="truncate">{convo.title}</span>
                                     </SidebarMenuButton>
                                     <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-7 w-7 absolute right-1 top-1/2 -translate-y-1/2"
-                                            >
-                                                <MoreHorizontal className="h-4 w-4" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
-                                                <Pencil className="mr-2 h-4 w-4" />
-                                                <span>Rename</span>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
-                                                <Share2 className="mr-2 h-4 w-4" />
-                                                <span>Share</span>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => archiveConversation(convo.id)}>
-                                                <Archive className="mr-2 h-4 w-4" />
-                                                <span>Archive</span>
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => handleDeleteClick(convo.id)} className="text-destructive">
-                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                <span>Delete</span>
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
+                                    <DropdownMenuTrigger asChild>
+                                      <SidebarMenuAction className="z-10">
+                                        <MoreHorizontal className="h-4 w-4" />
+                                      </SidebarMenuAction>
+                                    </DropdownMenuTrigger>
+                                        <DropdownMenuPortal>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => handleRenameClick(convo.id, convo.title)}>
+                                                    <Pencil className="mr-2 h-4 w-4" />
+                                                    <span>Rename</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
+                                                    <Share2 className="mr-2 h-4 w-4" />
+                                                    <span>Share</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => archiveConversation(convo.id, !convo.isArchived)}>
+                                                    <Archive className="mr-2 h-4 w-4" />
+                                                    <span>{convo.isArchived ? 'Unarchive' : 'Archive'}</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => handleDeleteClick(convo.id)} className="text-destructive">
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    <span>Delete</span>
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenuPortal>
                                     </DropdownMenu>
                                 </SidebarMenuItem>
                             ))}
@@ -314,10 +397,9 @@ export function ChatClient() {
         </Sidebar>
       )}
         
-
-        <div className="flex flex-col h-screen w-full">
-            <header className="p-4 border-b border-border/50 sticky top-0 z-10 bg-background/50 backdrop-blur-sm">
-                <div className="flex justify-between items-center max-w-7xl mx-auto">
+      <div className="flex flex-col h-screen w-full">
+        <header className="p-4 border-b border-border/50 sticky top-0 z-10 bg-background/50 backdrop-blur-sm">
+             <div className="flex justify-between items-center max-w-7xl mx-auto">
                     <div className="flex items-center gap-4">
                         {isLoggedIn && <SidebarTrigger className="md:hidden"/>}
                         <h1 className="text-xl font-bold font-headline text-foreground">Shravya AI</h1>
@@ -342,76 +424,75 @@ export function ChatClient() {
                         </DropdownMenu>
                     </div>
                 </div>
-            </header>
+        </header>
 
-            <main className="flex-1 overflow-y-auto">
-                <ScrollArea className="h-full" viewportRef={viewportRef}>
-                <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-4xl mx-auto" ref={scrollAreaRef}>
-                    {showWelcomeScreen && !isPending ? (
-                         <div className="flex flex-col items-center justify-center h-full pt-16">
-                            <DiyaIcon className="h-12 w-12 text-primary mb-4" />
-                            <h2 className="text-2xl font-bold mb-8">How can I help you today?</h2>
-                        </div>
-                    ) : (
-                        activeConversation?.messages?.map((message: AiMessage) => (
-                            <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateResponse(message)} onScriptToggle={() => toggleScript(message.id)} />
-                        ))
-                    )}
-                    {isPending && <ThinkingBubble />}
-                </div>
-                </ScrollArea>
-            </main>
-
-            <footer className="p-2 md:p-4 bg-background sticky bottom-0 z-10">
-                <div className="max-w-4xl mx-auto">
-                    {showWelcomeScreen && !isPending && (
-                        <div className="flex justify-center items-center gap-2 mb-2">
-                            {suggestionChips.map((chip, i) => (
-                                <Button key={i} variant="outline" size="sm" onClick={() => handleSendMessage(chip.text)}>
-                                    {chip.text}
+        <main className="flex-1 overflow-y-auto">
+            <ScrollArea className="h-full" viewportRef={viewportRef}>
+            <div className="p-3 md:p-6 space-y-4 md:space-y-6 max-w-4xl mx-auto">
+                {showWelcomeScreen && !isPending ? (
+                     <div className="flex flex-col items-center justify-center h-full pt-16">
+                        <DiyaIcon className="h-12 w-12 text-primary mb-4" />
+                        <h2 className="text-2xl font-bold mb-2">{greeting}</h2>
+                        <p className="text-muted-foreground mb-6">{personaDetails[activePersona].description}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-md">
+                            {personaDetails[activePersona].prompts.map((prompt, i) => (
+                                <Button key={i} variant="outline" size="sm" onClick={() => handlePromptStarterClick(prompt)}>
+                                    {prompt}
                                 </Button>
                             ))}
                         </div>
-                    )}
-                    <form onSubmit={handleSubmit} className="relative">
-                        <Textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder="Ask anything..."
-                            className="flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base"
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSubmit(e);
-                                }
-                            }}
-                            disabled={isPending}
-                        />
-                        <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
-                            <Button type="button" variant="ghost" size="icon" className="rounded-full">
-                                <Paperclip className="w-5 h-5" />
-                            </Button>
-                        </div>
-                        <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
-                            <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive")} onClick={handleMicClick}>
-                                {isRecording ? <Square className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                            </Button>
-                            <Button
-                                type="submit"
-                                size="icon"
-                                className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/90"
-                                disabled={isPending || !input.trim()}
-                            >
-                                <Send className="w-5 h-5" />
-                            </Button>
-                        </div>
-                    </form>
-                    <p className="text-xs text-center text-muted-foreground mt-2">
-                        By messaging Shravya AI, you agree to our Terms and have read our Privacy Policy.
-                    </p>
-                </div>
-            </footer>
-        </div>
+                    </div>
+                ) : (
+                    activeConversation?.messages?.map((message: AiMessage) => (
+                        <ChatMessage key={message.id} message={message} onRegenerate={() => { /* Not implemented */ }} onScriptToggle={() => { /* Not implemented */ }} />
+                    ))
+                )}
+                {isPending && <ThinkingBubble />}
+            </div>
+            </ScrollArea>
+        </main>
+
+        <footer className="p-2 md:p-4 bg-background sticky bottom-0 z-10">
+            <div className="max-w-4xl mx-auto">
+                <form onSubmit={handleSubmit} className="relative">
+                    <Textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Ask anything..."
+                        className="flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base"
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSubmit(e);
+                            }
+                        }}
+                        disabled={isPending}
+                    />
+                    <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
+                        <Button type="button" variant="ghost" size="icon" className="rounded-full">
+                            <Paperclip className="h-5 w-5" />
+                        </Button>
+                    </div>
+                    <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
+                        <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive")} onClick={handleMicClick}>
+                            {isRecording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                        </Button>
+                        <Button
+                            type="submit"
+                            size="icon"
+                            className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/90"
+                            disabled={isPending || !input.trim()}
+                        >
+                            <Send className="h-5 w-5" />
+                        </Button>
+                    </div>
+                </form>
+                <p className="text-xs text-center text-muted-foreground mt-2">
+                    By messaging Shravya AI, you agree to our Terms and have read our Privacy Policy.
+                </p>
+            </div>
+        </footer>
+      </div>
     </div>
   );
 }

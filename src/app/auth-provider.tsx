@@ -1,53 +1,52 @@
+
 "use client";
 
-import { useEffect, useState, createContext, useContext } from "react";
-import { onAuthStateChanged, User, signInAnonymously } from "firebase/auth";
+import { useEffect, useState, createContext, useContext, useCallback } from "react";
+import { onAuthStateChanged, User, signInAnonymously, signOut as firebaseSignOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { useRouter, usePathname } from "next/navigation";
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, loading: true });
+const AuthContext = createContext<AuthContextType>({ user: null, loading: true, logout: async () => {} });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
-  const pathname = usePathname();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUser(user);
-        setLoading(false);
-      } else {
-        signInAnonymously(auth)
-          .then((anonymousUser) => {
-            setUser(anonymousUser.user);
-          })
-          .catch((error) => {
-            console.error("Anonymous sign-in failed:", error);
-          })
-          .finally(() => {
-            setLoading(false);
-          });
-      }
+  // Separate function to handle anonymous sign-in
+  const createGuestSession = useCallback(() => {
+    return signInAnonymously(auth).catch((error) => {
+      console.error("Anonymous sign-in failed:", error);
     });
-
-    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!loading && !user && pathname !== "/" && pathname !== "/login" && pathname !== "/signup") {
-      router.push("/login");
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Effect to create a guest session on initial load if no user is authenticated
+  useEffect(() => {
+    // This check ensures we only run this on the initial client-side load
+    if (!loading && !user) {
+      createGuestSession();
     }
-  }, [user, loading, pathname, router]);
+  }, [loading, user, createGuestSession]);
+
+  const logout = useCallback(async () => {
+    await firebaseSignOut(auth);
+    await createGuestSession();
+  }, [createGuestSession]);
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider value={{ user, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );

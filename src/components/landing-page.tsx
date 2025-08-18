@@ -6,12 +6,32 @@ import { Button } from '@/components/ui/button';
 import { DiyaIcon } from '@/components/icons';
 import { MessageSquare, Users, Palette, UploadCloud, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useEffect } from 'react';
 
 export function LandingPage() {
   const featureVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0 },
   };
+
+  useEffect(() => {
+    // Add a custom shadow utility in your globals.css or here in a style tag
+    // For simplicity, adding it here. In a real app, this would be in a CSS file.
+    const styles = `
+      .shadow-soft {
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      }
+    `;
+
+    const styleSheet = document.createElement("style");
+    styleSheet.type = "text/css";
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen bg-beige">
@@ -106,19 +126,4 @@ export function LandingPage() {
       </footer>
     </div>
   );
-}
-
-// Add a custom shadow utility in your globals.css or here in a style tag
-// For simplicity, adding it here. In a real app, this would be in a CSS file.
-const styles = `
-  .shadow-soft {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-  }
-`;
-
-if (typeof window !== 'undefined') {
-  const styleSheet = document.createElement("style");
-  styleSheet.type = "text/css";
-  styleSheet.innerText = styles;
-  document.head.appendChild(styleSheet);
 }

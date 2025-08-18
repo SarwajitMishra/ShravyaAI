@@ -1,4 +1,4 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 initializeApp();
@@ -60,7 +60,7 @@ export const createNewSession = onCall(async (request) => {
             title,
             mode,
             languageIntent,
-            isPremiumSnapshot: false, // Default value
+            isPremiumSnapshot: false,
             createdAt: now,
             updatedAt: now,
         };
@@ -104,7 +104,7 @@ export const appendUserMessage = onCall(async (request) => {
 });
 export const updateSession = onCall(async (request) => {
     if (!request.auth) {
-        throw new HttpsError("unauthenticated", "The function must be called while authenticated.");
+        throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
     }
     const { uid } = request.auth;
     const { sessionId, updates } = request.data;
@@ -134,5 +134,38 @@ export const deleteSession = onCall(async (request) => {
     catch (error) {
         console.error("Error in deleteSession:", error);
         throw new HttpsError("internal", "Failed to delete session.", error);
+    }
+});
+export const performWebSearch = onRequest({ secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (req, res) => {
+    var _a;
+    // This is now a standard HTTPS function for server-to-server calls.
+    const { query } = req.body.data;
+    if (!query) {
+        res.status(400).send({ error: "Missing 'query' in request body." });
+        return;
+    }
+    const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
+    const searchEngineId = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
+    console.log(`[performWebSearch] Performing search for: "${query}"`);
+    try {
+        const response = await fetch(url);
+        const responseData = await response.json();
+        if (!response.ok) {
+            console.error("Google Search API Error:", responseData);
+            res.status(response.status).send({ error: "Failed to fetch search results." });
+            return;
+        }
+        const results = ((_a = responseData.items) === null || _a === void 0 ? void 0 : _a.map((item) => ({
+            title: item.title,
+            link: item.link,
+            snippet: item.snippet,
+        }))) || [];
+        console.log(`[performWebSearch] Found ${results.length} results.`);
+        res.status(200).send({ data: { results } });
+    }
+    catch (error) {
+        console.error("Error in performWebSearch:", error);
+        res.status(500).send({ error: "An unexpected error occurred." });
     }
 });

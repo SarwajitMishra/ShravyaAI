@@ -35,7 +35,7 @@ const transliterateToDevanagari = (text: string): string => {
   if (!text) return '';
   const mapping: { [key: string]: string } = {
     'a': 'अ', 'b': 'ब', 'c': 'स', 'd': 'ड', 'e': 'ए', 'f': 'फ', 'g': 'ग', 'h': 'ह', 'i': 'इ', 'j': 'ज', 'k': 'क', 'l': 'ल', 'm': 'म', 'n': 'न', 'o': 'ओ', 'p': 'प', 'q': 'क़', 'r': 'र', 's': 'स', 't': 'ट', 'u': 'उ', 'v': 'व', 'w': 'व', 'x': 'क्स', 'y': 'य', 'z': 'ज़',
-    'namaste': 'नमस्ते', 'hello': 'नमस्ते', 'kaise ho': ' कैसे हो', 'how are you': 'कैसे हो', 'dhanyavaad': 'धन्यवाद', 'thank you': 'धन्यवाद', 'shukriya': 'शुक्रिया',
+    'namaste': 'नमस्ते', 'hello': 'नमस्ते', 'kaise ho': 'कैसे हो', 'how are you': 'कैसे हो', 'dhanyavaad': 'धन्यवाद', 'thank you': 'धन्यवाद', 'shukriya': 'शुक्रिया',
     'main': 'मैं', 'theek': 'ठीक', 'hoon': 'हूँ',
     'friend': 'मित्र', 'teacher': 'शिक्षक', 'spiritual': 'आध्यात्मिक', 'pro': 'विशेषज्ञ', 'storyteller': 'कथावाचक'
   };
@@ -53,8 +53,6 @@ export async function getAiResponse(
   nativeScript: string;
   isError: boolean;
 } > {
-  console.log('getAiResponse received:', JSON.stringify({ history, persona }, null, 2));
-
   const userPrompt = history[history.length - 1]?.content || '';
   let responseContent = "";
   let nativeScript = "";
@@ -86,8 +84,6 @@ export async function getAiResponse(
   }
   
   nativeScript = transliterateToDevanagari(responseContent);
-
-  console.log('getAiResponse sending:', JSON.stringify({ content: responseContent, nativeScript, isError }, null, 2));
 
   return {
     content: responseContent,
@@ -125,22 +121,6 @@ export async function getQuickResponse(
 
     nativeScript = transliterateToDevanagari(result);
     return { content: result, nativeScript, isError };
-}
-
-export async function getInitialGreeting(persona: Persona): Promise<{ content: string; nativeScript: string; isError: boolean; }> {
-  try {
-    const result = await behaviorModeSelection({
-        query: `Start a new conversation and greet me in the style of a ${persona}.`,
-        previousMode: persona,
-    });
-    const nativeScript = transliterateToDevanagari(result.response);
-    return { content: result.response, nativeScript, isError: false };
-  } catch(error) {
-    console.error("Error getting initial greeting:", error);
-    const content = "Hello! How can I help you today?";
-    const nativeScript = transliterateToDevanagari(content);
-    return { content, nativeScript, isError: true };
-  }
 }
 
 export async function transcribeAudio(audioDataUri: string): Promise<{transcription: string}> {
