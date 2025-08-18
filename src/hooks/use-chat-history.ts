@@ -90,7 +90,7 @@ export function useChatHistory() {
     }
   }, [sessions, activePersona, startNewConversation]);
 
-  const sendMessage = useCallback(async (content: string, persona: Persona, imageUrl?: string) => {
+  const sendMessage = useCallback(async (content: string, persona: Persona, imageUrls?: string[]) => {
     if (!user || !activeSessionId) return;
     const sessionId = activeSessionId;
     setIsPending(true);
@@ -101,7 +101,7 @@ export function useChatHistory() {
         await updateSession({ sessionId, updates: { title: content.substring(0, 20) } });
       }
 
-      const userMessage: Omit<AiMessage, 'id'> = { role: 'user', content, imageUrl, mode: persona, languageIntent: 'auto', createdAt: Date.now(), showScript: false };
+      const userMessage: Omit<AiMessage, 'id'> = { role: 'user', content, imageUrls, mode: persona, languageIntent: 'auto', createdAt: Date.now(), showScript: false };
       await appendUserMessage({ sessionId, message: userMessage });
 
       const messagesSnapshot = await getDocs(query(collection(db, `aiProfiles/${user.uid}/sessions/${sessionId}/messages`), orderBy("createdAt", "asc")));

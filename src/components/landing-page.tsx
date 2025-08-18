@@ -7,8 +7,18 @@ import { BrandIcon } from '@/components/brand-icon';
 import { MessageSquare, Users, Palette, UploadCloud, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useEffect } from 'react';
+import { useAuth } from '@/app/auth-provider';
+import { useRouter } from 'next/navigation';
 
 export function LandingPage() {
+  const { createGuestSession } = useAuth();
+  const router = useRouter();
+
+  const handleGuestContinue = async () => {
+    await createGuestSession();
+    router.push('/chat');
+  };
+
   const featureVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0 },
@@ -69,11 +79,9 @@ export function LandingPage() {
             Your personal AI companion that understands Romanized Indian languages and cultural nuances.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4">
-            <Button asChild size="lg" className="bg-primary-saffron hover:bg-primary-saffron/90">
-              <Link href="/chat">
+            <Button size="lg" className="bg-primary-saffron hover:bg-primary-saffron/90" onClick={handleGuestContinue}>
                 Continue as Guest
                 <ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
             </Button>
             <Button asChild size="lg" variant="outline" className="border-secondary-teal text-secondary-teal hover:bg-secondary-teal/10 hover:text-secondary-teal">
               <Link href="#features">Learn More</Link>
@@ -114,7 +122,7 @@ export function LandingPage() {
                   (Coming Soon) Upload a file and ask questions to get insights from your documents and images.
                 </p>
               </motion.div>
-            </div>
+.            </div>
           </div>
         </motion.section>
       </main>

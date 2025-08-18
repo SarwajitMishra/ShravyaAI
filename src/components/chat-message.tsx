@@ -3,6 +3,7 @@
 
 import type { AiMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Copy, RefreshCw, Languages, User, AlertTriangle, Check } from "lucide-react";
@@ -14,6 +15,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { MoreHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useState } from "react";
@@ -96,6 +102,24 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
             <p className="font-bold">Error</p>
           </div>
         )}
+
+        {message.imageUrls && message.imageUrls.length > 0 && (
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            {message.imageUrls.map((url, index) => (
+              <Dialog key={index}>
+                <DialogTrigger asChild>
+                  <div className="relative aspect-square rounded-md overflow-hidden cursor-pointer">
+                    <Image src={url} alt={`Uploaded image ${index + 1}`} layout="fill" className="object-cover" />
+                  </div>
+                </DialogTrigger>
+                <DialogContent className="max-w-3xl">
+                  <Image src={url} alt={`Uploaded image ${index + 1}`} width={800} height={600} className="object-contain" />
+                </DialogContent>
+              </Dialog>
+            ))}
+          </div>
+        )}
+
         {isUser ? (
           <p className="m-0 whitespace-pre-wrap">{message.content}</p>
         ) : (

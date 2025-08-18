@@ -9,19 +9,21 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   logout: () => Promise<void>;
+  createGuestSession: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, loading: true, logout: async () => {} });
+const AuthContext = createContext<AuthContextType>({ user: null, loading: true, logout: async () => {}, createGuestSession: async () => {} });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Separate function to handle anonymous sign-in
-  const createGuestSession = useCallback(() => {
-    return signInAnonymously(auth).catch((error) => {
+  const createGuestSession = useCallback(async () => {
+    try {
+      await signInAnonymously(auth);
+    } catch (error) {
       console.error("Anonymous sign-in failed:", error);
-    });
+    }
   }, []);
 
   useEffect(() => {
@@ -32,21 +34,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // Effect to create a guest session on initial load if no user is authenticated
-  useEffect(() => {
-    // This check ensures we only run this on the initial client-side load
-    if (!loading && !user) {
-      createGuestSession();
-    }
-  }, [loading, user, createGuestSession]);
-
   const logout = useCallback(async () => {
     await firebaseSignOut(auth);
-    await createGuestSession();
-  }, [createGuestSession]);
+    window.location.href = '/';
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, logout }}>
+    <AuthContext.Provider value={{ user, loading, logout, createGuestSession }}>
       {children}
     </AuthContext.Provider>
   );

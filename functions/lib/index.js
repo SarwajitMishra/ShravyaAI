@@ -14,7 +14,8 @@ export const ensureProfile = onCall(async (request) => {
     console.log("Authentication check passed in ensureProfile.");
     const { uid } = request.auth;
     const { defaults } = request.data || {};
-    console.log(`Received data in ensureProfile: uid=${uid}, defaults=${JSON.stringify(defaults)}`);
+    console.log(`Received data in ensureProfile: uid=${uid}, 
+          defaults=${JSON.stringify(defaults)}`);
     try {
         const ref = db.doc(`aiProfiles/${uid}`);
         const snap = await ref.get();
@@ -22,16 +23,16 @@ export const ensureProfile = onCall(async (request) => {
         if (!snap.exists) {
             console.log(`No profile found for uid=${uid}. Creating a new one.`);
             const newProfile = {
-                profile: Object.assign({ uid, displayName: request.auth.token.name || '', defaultMode: 'Friend', languageIntent: 'auto', createdAt: now, lastSeenAt: now }, defaults)
+                profile: Object.assign({ uid, displayName: request.auth.token.name || "", defaultMode: "Friend", languageIntent: "auto", createdAt: now, lastSeenAt: now }, defaults),
             };
-            console.log("Attempting to write new profile to Firestore with data:", JSON.stringify(newProfile, null, 2));
+            console.log("Attempting to write new profile to Firestore:", JSON.stringify(newProfile, null, 2));
             await ref.set(newProfile);
             console.log("Successfully wrote new profile to Firestore.");
         }
         else {
-            console.log(`Profile found for uid=${uid}. Updating last seen time.`);
-            const updatedProfile = Object.assign({ 'profile.lastSeenAt': now }, defaults);
-            console.log("Attempting to update profile in Firestore with data:", JSON.stringify(updatedProfile, null, 2));
+            console.log(`Profile found for uid=${uid}. Updating last seen.`);
+            const updatedProfile = Object.assign({ "profile.lastSeenAt": now }, defaults);
+            console.log("Attempting to update profile in Firestore:", JSON.stringify(updatedProfile, null, 2));
             await ref.update(updatedProfile);
             console.log("Successfully updated profile in Firestore.");
         }
@@ -52,7 +53,8 @@ export const createNewSession = onCall(async (request) => {
     console.log("Authentication check passed.");
     const { uid } = request.auth;
     const { title, mode, languageIntent } = request.data;
-    console.log(`Received data: uid=${uid}, title=${title}, mode=${mode}, languageIntent=${languageIntent}`);
+    console.log(`Received data: uid=${uid}, title=${title}, 
+          mode=${mode}, languageIntent=${languageIntent}`);
     try {
         const ref = db.collection(`aiProfiles/${uid}/sessions`).doc();
         const now = new Date().toISOString();
@@ -85,7 +87,8 @@ export const appendUserMessage = onCall(async (request) => {
     console.log("Authentication check passed in appendUserMessage.");
     const { uid } = request.auth;
     const { sessionId, message } = request.data;
-    console.log(`Received data in appendUserMessage: uid=${uid}, sessionId=${sessionId}`);
+    console.log(`Received data in appendUserMessage: uid=${uid}, 
+          sessionId=${sessionId}`);
     try {
         const messageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
         const now = new Date().toISOString();
@@ -94,7 +97,8 @@ export const appendUserMessage = onCall(async (request) => {
         await messageRef.set(newMessage);
         console.log("Successfully wrote message to Firestore.");
         console.log("Attempting to update session's updatedAt timestamp.");
-        await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({ updatedAt: now });
+        await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`)
+            .update({ updatedAt: now });
         console.log("Successfully updated session timestamp.");
         return { messageId: messageRef.id };
     }
@@ -121,13 +125,14 @@ export const deleteSession = onCall(async (request) => {
     console.log("Authentication check passed in deleteSession.");
     const { uid } = request.auth;
     const { sessionId } = request.data;
-    console.log(`Received data in deleteSession: uid=${uid}, sessionId=${sessionId}`);
+    console.log(`Received data in deleteSession: uid=${uid}, 
+          sessionId=${sessionId}`);
     if (!sessionId) {
         console.error("Invalid argument: sessionId is missing.");
         throw new HttpsError("invalid-argument", "Missing required field: sessionId.");
     }
     try {
-        console.log(`Attempting to delete session ${sessionId} for user ${uid}.`);
+        console.log(`Attempting to delete session ${sessionId} for ${uid}.`);
         await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).delete();
         console.log("Successfully deleted session from Firestore.");
         return { success: true };
@@ -147,14 +152,16 @@ export const performWebSearch = onRequest({ secrets: ["GOOGLE_SEARCH_API_KEY", "
     }
     const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
     const searchEngineId = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
+    const url = "https://www.googleapis.com/customsearch/v1?key=" +
+        `${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
     console.log(`[performWebSearch] Performing search for: "${query}"`);
     try {
         const response = await fetch(url);
         const responseData = await response.json();
         if (!response.ok) {
             console.error("Google Search API Error:", responseData);
-            res.status(response.status).send({ error: "Failed to fetch search results." });
+            res.status(response.status)
+                .send({ error: "Failed to fetch search results." });
             return;
         }
         const results = ((_a = responseData.items) === null || _a === void 0 ? void 0 : _a.map((item) => ({
@@ -171,3 +178,4 @@ export const performWebSearch = onRequest({ secrets: ["GOOGLE_SEARCH_API_KEY", "
     }
 });
 export { uploadImage };
+//# sourceMappingURL=index.js.map

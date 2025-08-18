@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import { useAuth } from "@/app/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,13 +25,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, ChevronDown, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus, User as UserIcon, Settings, LifeBuoy, Image as ImageIcon, FileText, Camera, ScreenShare } from "lucide-react";
+import { Send, ChevronDown, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Archive, Share2, Square, LogOut, UserPlus, LogIn, Plus, User as UserIcon, Settings, LifeBuoy, Image as ImageIcon, FileText, Camera, ScreenShare, X, Loader2 } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
-import type { Persona, AiMessage, AiSession } from "@/lib/types";
+import type { Persona, AiMessage, AiSession, LangIntent } from "@/lib/types";
 import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction, SidebarGroup, SidebarGroupLabel, SidebarGroupContent } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -69,7 +70,13 @@ const personaDetails = {
   },
 };
 
-const GUEST_MESSAGE_LIMIT = 10;
+const guestMessageThresholds = [10, 100, 1000];
+
+type UploadingFile = {
+  id: string;
+  name: string;
+  progress: number; 
+};
 
 export function ChatClient() {
   const { user, loading, logout } = useAuth();
@@ -93,6 +100,9 @@ export function ChatClient() {
   } = useChatHistory();
 
   const [input, setInput] = useState("");
+  const [stagedImageUrls, setStagedImageUrls] = useState<string[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+  
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
@@ -106,6 +116,7 @@ export function ChatClient() {
 
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
   const [guestPromptOpen, setGuestPromptOpen] = useState(false);
+  const [guestPromptDismissals, setGuestPromptDismissals] = useState(0);
 
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -119,23 +130,46 @@ export function ChatClient() {
       });
     }
   }, [activeConversation?.messages, isPending]);
+  
+  // Load guest prompt dismissals from localStorage on mount
+  useEffect(() => {
+    const dismissals = parseInt(localStorage.getItem('guestPromptDismissals') || '0', 10);
+    setGuestPromptDismissals(dismissals);
+  }, []);
 
   // Effect to check for guest user message limit
   useEffect(() => {
     if (isGuest && activeConversation?.messages) {
       const userMessages = activeConversation.messages.filter(m => m.role === 'user').length;
-      if (userMessages >= GUEST_MESSAGE_LIMIT) {
-        setGuestPromptOpen(true);
+      const dismissals = parseInt(localStorage.getItem('guestPromptDismissals') || '0', 10);
+
+      if (dismissals < guestMessageThresholds.length) {
+        const currentThreshold = guestMessageThresholds[dismissals];
+        if (userMessages >= currentThreshold) {
+          setGuestPromptOpen(true);
+        }
       }
     }
   }, [isGuest, activeConversation?.messages]);
+
+  const handleGuestPromptDismiss = () => {
+    const newDismissals = guestPromptDismissals + 1;
+    setGuestPromptDismissals(newDismissals);
+    localStorage.setItem('guestPromptDismissals', newDismissals.toString());
+    setGuestPromptOpen(false);
+  };
   
-  const handleSendMessage = (message?: string, imageUrl?: string) => {
-    const content = (message || input).trim();
-    if (!content && !imageUrl) return;
+  const handleSendMessage = () => {
+    const content = input.trim();
+    if (!content && stagedImageUrls.length === 0) return;
     
-    sendMessage(content, activePersona, imageUrl);
+    sendMessage(content, activePersona, stagedImageUrls);
     setInput("");
+    setStagedImageUrls([]);
+  };
+
+  const handleRemoveStagedImage = (index: number) => {
+    setStagedImageUrls(prev => prev.filter((_, i) => i !== index));
   };
   
   const handlePromptStarterClick = (prompt: string) => {
@@ -201,7 +235,8 @@ export function ChatClient() {
           reader.onloadend = async () => {
             const base64Audio = reader.result as string;
             setInput("Transcribing audio...");
-            const { transcription } = await transcribeAudio(base64Audio);
+            const languageIntent = activeConversation?.languageIntent || 'auto';
+            const { transcription } = await transcribeAudio(base64Audio, languageIntent);
             setInput(transcription);
           };
           stream.getTracks().forEach(track => track.stop());
@@ -268,10 +303,16 @@ export function ChatClient() {
   const handleDocumentUpload = () => documentInputRef.current?.click();
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      toast({ title: 'Uploading...', description: `Your file "${file.name}" is being uploaded.` });
-      
+    const files = event.target.files;
+    if (!files) return;
+  
+    const filesToUpload = Array.from(files);
+  
+    filesToUpload.forEach(file => {
+      const fileId = `${file.name}-${Date.now()}`;
+      const newUploadingFile: UploadingFile = { id: fileId, name: file.name, progress: 0 };
+      setUploadingFiles(prev => [...prev, newUploadingFile]);
+  
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = async () => {
@@ -280,19 +321,23 @@ export function ChatClient() {
           try {
             const result: any = await uploadImage({ imageData: base64ImageData, fileName: file.name });
             const imageUrl = result.data.fileUrl;
-            
-            // Now, send a message with the image URL
-            handleSendMessage(`Image uploaded: ${file.name}`, imageUrl);
-
-            toast({ title: 'Upload Successful', description: 'Your image is ready.' });
+            setStagedImageUrls(prev => [...prev, imageUrl]);
           } catch (error) {
-            toast({ variant: 'destructive', title: 'Upload Failed', description: 'Could not upload your image.' });
+            toast({ variant: 'destructive', title: `Upload Failed for ${file.name}`, description: 'Could not upload your image.' });
+          } finally {
+            setUploadingFiles(prev => prev.filter(f => f.id !== fileId));
           }
         }
       };
-    }
+      reader.onerror = () => {
+        toast({ variant: 'destructive', title: `Error reading ${file.name}` });
+        setUploadingFiles(prev => prev.filter(f => f.id !== fileId));
+      };
+    });
+  
     event.target.value = '';
   };
+  
 
   const handleComingSoon = () => {
     toast({ title: 'Coming Soon!', description: 'This feature is under development.' });
@@ -306,6 +351,7 @@ export function ChatClient() {
         onChange={handleFileChange}
         accept="image/*"
         className="hidden"
+        multiple
       />
       <input
         type="file"
@@ -313,6 +359,7 @@ export function ChatClient() {
         onChange={handleFileChange}
         accept=".pdf,.doc,.docx,.txt"
         className="hidden"
+        multiple
       />
 
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
@@ -375,7 +422,7 @@ export function ChatClient() {
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel>Continue as Guest</AlertDialogCancel>
+                    <AlertDialogCancel onClick={handleGuestPromptDismiss}>Continue as Guest</AlertDialogCancel>
                     <AlertDialogAction asChild>
                         <Link href="/login">Login</Link>
                     </AlertDialogAction>
@@ -591,11 +638,37 @@ export function ChatClient() {
         <footer className="p-2 md:p-4 bg-background sticky bottom-0 z-10">
             <div className="max-w-4xl mx-auto">
                 <form onSubmit={handleSubmit} className="relative">
+                    {(stagedImageUrls.length > 0 || uploadingFiles.length > 0) && (
+                      <div className="p-2 bg-card border border-b-0 rounded-t-2xl flex gap-2 flex-wrap">
+                        {uploadingFiles.map(file => (
+                          <div key={file.id} className="w-20 h-20 rounded-md bg-muted flex items-center justify-center">
+                            <Loader2 className="animate-spin h-6 w-6" />
+                          </div>
+                        ))}
+                        {stagedImageUrls.map((url, index) => (
+                          <div key={url} className="relative w-20 h-20 rounded-md">
+                            <Image src={url} alt="Staged image" layout="fill" className="object-cover rounded-md" />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/80"
+                              onClick={() => handleRemoveStagedImage(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <Textarea
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         placeholder="Ask anything..."
-                        className="flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base"
+                        className={cn(
+                          "flex-1 rounded-2xl min-h-[56px] max-h-48 bg-card pr-32 pl-12 resize-none text-base",
+                          (stagedImageUrls.length > 0 || uploadingFiles.length > 0) && "rounded-t-none"
+                        )}
                         onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
@@ -604,7 +677,7 @@ export function ChatClient() {
                         }}
                         disabled={isPending}
                     />
-                    <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
+                    <div className="absolute top-1/2 -translate-y-1_2 left-3 flex items-center">
                         {isGuest ? (
                             <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => setGuestPromptOpen(true)}>
                                 <Paperclip className="h-5 w-5" />
@@ -645,7 +718,7 @@ export function ChatClient() {
                             type="submit"
                             size="icon"
                             className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/hover"
-                            disabled={isPending || !input.trim()}
+                            disabled={isPending || (!input.trim() && stagedImageUrls.length === 0)}
                         >
                             <Send className="h-5 w-5" />
                         </Button>

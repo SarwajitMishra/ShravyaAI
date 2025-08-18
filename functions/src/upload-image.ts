@@ -1,22 +1,25 @@
 
-const { onCall } = require("firebase-functions/v2/https");
-const { getStorage } = require("firebase-admin/storage");
-const admin = require("firebase-admin");
-const { Readable } = require("stream");
+import {onCall, CallableRequest} from "firebase-functions/v2/https";
+import {getStorage} from "firebase-admin/storage";
+import {Readable} from "stream";
 
-// The admin app is initialized in index.ts, so no need to initialize it here.
+// The admin app is initialized in index.ts,
+// so no need to initialize it here.
 
-exports.uploadImage = onCall(async (request: any) => {
+export const uploadImage = onCall(async (request: CallableRequest<{
+  imageData: string,
+  fileName: string
+}>) => {
   if (!request.auth) {
     throw new Error("Authentication required.");
   }
 
-  const { imageData, fileName } = request.data;
+  const {imageData, fileName} = request.data;
   const uid = request.auth.uid;
   const bucket = getStorage().bucket();
 
   // Create a buffer from the base64 string
-  const buffer = Buffer.from(imageData, 'base64');
+  const buffer = Buffer.from(imageData, "base64");
 
   // Define the path in GCS
   const filePath = `user-uploads/${uid}/images/${fileName}`;
@@ -29,13 +32,14 @@ exports.uploadImage = onCall(async (request: any) => {
 
   return new Promise((resolve, reject) => {
     stream.pipe(file.createWriteStream())
-      .on("error", (error: any) => {
-        reject(new Error(`File upload failed: ${error.message}`));
-      })
-      .on("finish", async () => {
-        // Make the file public for simplicity, or generate a signed URL for private access
-        await file.makePublic();
-        resolve({ fileUrl: file.publicUrl() });
-      });
+        .on("error", (error: Error) => {
+          reject(new Error(`File upload failed: ${error.message}`));
+        })
+        .on("finish", async () => {
+        // Make the file public for simplicity,
+        // or generate a signed URL for private access
+          await file.makePublic();
+          resolve({fileUrl: file.publicUrl()});
+        });
   });
 });

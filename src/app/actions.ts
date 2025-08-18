@@ -13,7 +13,8 @@ import {
 import type {
   AiMessage,
   Persona,
-  QuickChipAction
+  QuickChipAction,
+  LangIntent
 } from '@/lib/types';
 import {
   checkSafetyAndTone
@@ -123,9 +124,9 @@ export async function getQuickResponse(
     return { content: result, nativeScript, isError };
 }
 
-export async function transcribeAudio(audioDataUri: string): Promise<{transcription: string}> {
+export async function transcribeAudio(audioDataUri: string, languageIntent: LangIntent): Promise<{transcription: string}> {
     try {
-        const { transcription } = await transcribeAudioFlow({ audioDataUri });
+        const { transcription } = await transcribeAudioFlow({ audioDataUri, languageIntent });
         return { transcription };
     } catch (error) {
         console.error("Error transcribing audio:", error);
