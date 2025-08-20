@@ -59,32 +59,46 @@ export async function getAiResponse(
   let nativeScript = "";
   let isError = false;
 
+  console.log(`[getAiResponse] Starting for persona: ${persona} with prompt: "${userPrompt}"`);
+
   const historyWithoutDisplay = history.map(({ role, content }) => ({ role, content }));
 
   try {
+    console.log('[getAiResponse] Checking safety and tone...');
     const safetyResult = await checkSafetyAndTone({
       userInput: userPrompt,
       persona,
     });
+    console.log('[getAiResponse] Safety check complete.');
     
     const isSafe = !safetyResult.safeResponse.includes("I cannot respond to that request");
 
     if (!isSafe) {
+        console.log('[getAiResponse] Unsafe prompt detected. Returning safe response.');
         responseContent = safetyResult.safeResponse;
     } else {
+        console.log('[getAiResponse] Prompt is safe. Getting conversational response...');
         const result = await conversationalResponse({
             history: historyWithoutDisplay,
             persona,
         });
+        console.log('[getAiResponse] Conversational response received.');
         responseContent = result.response;
     }
   } catch (error: any) {
-    console.error("Error getting AI response:", error);
+    console.error("Error in getAiResponse:", error);
+    console.error("Error Details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+    });
     responseContent = "I'm having a little trouble right now. Please try again in a moment.";
     isError = true;
   }
   
+  console.log('[getAiResponse] Transliterating response to Devanagari.');
   nativeScript = transliterateToDevanagari(responseContent);
+  console.log('[getAiResponse] Finished.');
 
   return {
     content: responseContent,
