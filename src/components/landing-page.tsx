@@ -7,7 +7,7 @@ import { BrandIcon } from '@/components/brand-icon';
 import { MessageSquare, Users, Palette, UploadCloud, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useEffect } from 'react';
-import { useAuth } from '@/app/auth-provider';
+import { useAuth } from '@/components/providers/auth-provider';
 import { useRouter } from 'next/navigation';
 
 export function LandingPage() {
