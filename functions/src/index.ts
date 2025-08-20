@@ -1,68 +1,30 @@
-
-import {onCall, HttpsError, onRequest} from "firebase-functions/v2/https";
-import {initializeApp} from "firebase-admin/app";
-import {getFirestore} from "firebase-admin/firestore";
-import {getAuth} from "firebase-admin/auth";
-import type {Mode, LangIntent, AiProfile, AiMessage} from "./lib/types.js";
-import {uploadImage} from "./upload-image.js";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
+import { Readable } from "stream";
+import { Request, Response } from "express";
 
 initializeApp();
 const db = getFirestore();
 
-// --- Type Definitions for v2 Callable Functions ---
-// These define the request and response shapes for our functions.
-
-interface EnsureProfileData { defaults?: Partial<AiProfile> }
-interface EnsureProfileResult { success: boolean }
-
-interface CreateNewSessionData {
-  title: string;
-  mode: Mode;
-  languageIntent: LangIntent
-}
-interface CreateNewSessionResult { sessionId: string }
-
-interface AppendUserMessageData {
-  sessionId: string;
-  message: Omit<AiMessage, "id"|"createdAt">
-}
-interface AppendUserMessageResult { messageId: string }
-
-interface UpdateSessionData {
-  sessionId: string;
-  updates: { title?: string; isArchived?: boolean }
-}
-interface UpdateSessionResult { success: boolean }
-
-interface DeleteSessionData { sessionId: string }
-interface DeleteSessionResult { success: boolean }
-
 /** ------------------ v2 Callables ------------------ */
 
-export const ensureProfile = onCall<EnsureProfileData,
-  Promise<EnsureProfileResult>>(
-      async (request) => {
-        console.log("ensureProfile triggered.");
-
+exports.ensureProfile = onCall(
+      async (request: any) => {
         if (!request.auth) {
-          console.error("Authentication check failed in ensureProfile.");
-          throw new HttpsError("unauthenticated",
-              "This function must be called while authenticated.");
+          throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
         }
-        console.log("Authentication check passed in ensureProfile.");
-
-        const {uid} = request.auth;
-        const {defaults} = request.data || {};
-        console.log(`Received data in ensureProfile: uid=${uid}, 
-          defaults=${JSON.stringify(defaults)}`);
-
+        const { uid } = request.auth;
+        const { defaults } = request.data;
+        
         try {
           const ref = db.doc(`aiProfiles/${uid}`);
           const snap = await ref.get();
           const now = new Date().toISOString();
 
           if (!snap.exists) {
-            console.log(`No profile found for uid=${uid}. Creating a new one.`);
             const newProfile = {
               profile: {
                 uid,
@@ -74,53 +36,33 @@ export const ensureProfile = onCall<EnsureProfileData,
                 ...defaults,
               },
             };
-            console.log("Attempting to write new profile to Firestore:",
-                JSON.stringify(newProfile, null, 2));
             await ref.set(newProfile);
-            console.log("Successfully wrote new profile to Firestore.");
           } else {
-            console.log(`Profile found for uid=${uid}. Updating last seen.`);
             const updatedProfile = {
               "profile.lastSeenAt": now,
               ...defaults,
             };
-            console.log("Attempting to update profile in Firestore:",
-                JSON.stringify(updatedProfile, null, 2));
             await ref.update(updatedProfile);
-            console.log("Successfully updated profile in Firestore.");
           }
-
-          console.log(`ensureProfile completed successfully for uid=${uid}.`);
           return {success: true};
         } catch (error) {
           console.error("Error in ensureProfile:", error);
-          throw new HttpsError("internal", "Failed to ensure profile.", error);
+          throw new HttpsError("internal", "Failed to ensure profile.");
         }
       }
   );
 
-export const createNewSession = onCall<CreateNewSessionData,
-  Promise<CreateNewSessionResult>>(
-      async (request) => {
-        console.log("createNewSession triggered.");
-
+exports.createNewSession = onCall(
+      async (request: any) => {
         if (!request.auth) {
-          console.error("Authentication check failed.");
-          throw new HttpsError("unauthenticated",
-              "This function must be called while authenticated.");
+          throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
         }
-        console.log("Authentication check passed.");
-
-        const {uid} = request.auth;
-        const {title, mode, languageIntent} = request.data;
-        console.log(`Received data: uid=${uid}, title=${title}, 
-          mode=${mode}, languageIntent=${languageIntent}`);
+        const { uid } = request.auth;
+        const { title, mode, languageIntent } = request.data;
 
         try {
           const ref = db.collection(`aiProfiles/${uid}/sessions`).doc();
           const now = new Date().toISOString();
-          console.log(`Generated new session ID: ${ref.id}`);
-
           const newSession = {
             title,
             mode,
@@ -129,183 +71,147 @@ export const createNewSession = onCall<CreateNewSessionData,
             createdAt: now,
             updatedAt: now,
           };
-
-          console.log("Attempting to write to Firestore with data:",
-              JSON.stringify(newSession, null, 2));
           await ref.set(newSession);
-          console.log("Successfully wrote to Firestore.");
-
-          console.log(`Returning session ID: ${ref.id}`);
           return {sessionId: ref.id};
         } catch (error) {
           console.error("Error in createNewSession:", error);
-          throw new HttpsError("internal",
-              "Failed to create a new session.", error);
+          throw new HttpsError("internal", "Failed to create a new session.");
         }
       }
   );
 
-export const appendUserMessage = onCall<AppendUserMessageData,
-  Promise<AppendUserMessageResult>>(
-      async (request) => {
-        console.log("appendUserMessage triggered.");
-
+exports.appendUserMessage = onCall(
+      async (request: any) => {
         if (!request.auth) {
-          console.error("Authentication check failed in appendUserMessage.");
-          throw new HttpsError("unauthenticated",
-              "This function must be called while authenticated.");
+          throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
         }
-        console.log("Authentication check passed in appendUserMessage.");
-
-        const {uid} = request.auth;
-        const {sessionId, message} = request.data;
-        console.log(`Received data in appendUserMessage: uid=${uid}, 
-          sessionId=${sessionId}`);
-
+        const { uid } = request.auth;
+        const { sessionId, message } = request.data;
+        
         try {
-          const messageRef = db.collection(
-              `aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+          const messageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
           const now = new Date().toISOString();
-
-          const newMessage = {
-            ...message,
-            createdAt: now,
-          };
-          console.log("Attempting to write message to Firestore with data:",
-              JSON.stringify(newMessage, null, 2));
+          const newMessage = { ...message, createdAt: now };
           await messageRef.set(newMessage);
-          console.log("Successfully wrote message to Firestore.");
-
-          console.log("Attempting to update session's updatedAt timestamp.");
-          await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`)
-              .update({updatedAt: now});
-          console.log("Successfully updated session timestamp.");
-
+          await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({updatedAt: now});
           return {messageId: messageRef.id};
         } catch (error) {
           console.error("Error in appendUserMessage:", error);
-          throw new HttpsError("internal", "Failed to append message.", error);
+          throw new HttpsError("internal", "Failed to append message.");
         }
       }
   );
 
-export const updateSession = onCall<UpdateSessionData,
-  Promise<UpdateSessionResult>>(
-      async (request) => {
+exports.updateSession = onCall(
+      async (request: any) => {
         if (!request.auth) {
-          throw new HttpsError("unauthenticated",
-              "This function must be called while authenticated.");
+          throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
         }
-        const {uid} = request.auth;
-        const {sessionId, updates} = request.data;
-
+        const { uid } = request.auth;
+        const { sessionId, updates } = request.data;
         await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({
           ...updates,
           updatedAt: new Date().toISOString(),
         });
-
         return {success: true};
       }
   );
 
-export const deleteSession = onCall<DeleteSessionData,
-  Promise<DeleteSessionResult>>(
-      async (request) => {
-        console.log("deleteSession triggered.");
-
+exports.deleteSession = onCall(
+      async (request: any) => {
         if (!request.auth) {
-          console.error("Authentication check failed in deleteSession.");
-          throw new HttpsError("unauthenticated",
-              "This function must be called while authenticated.");
+          throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
         }
-        console.log("Authentication check passed in deleteSession.");
-
-        const {uid} = request.auth;
-        const {sessionId} = request.data;
-        console.log(`Received data in deleteSession: uid=${uid}, 
-          sessionId=${sessionId}`);
+        const { uid } = request.auth;
+        const { sessionId } = request.data;
 
         if (!sessionId) {
-          console.error("Invalid argument: sessionId is missing.");
-          throw new HttpsError("invalid-argument",
-              "Missing required field: sessionId.");
+          throw new HttpsError("invalid-argument", "Missing required field: sessionId.");
         }
-
         try {
-          console.log(`Attempting to delete session ${sessionId} for ${uid}.`);
           await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).delete();
-          console.log("Successfully deleted session from Firestore.");
           return {success: true};
         } catch (error) {
           console.error("Error in deleteSession:", error);
-          throw new HttpsError("internal", "Failed to delete session.", error);
+          throw new HttpsError("internal", "Failed to delete session.");
         }
       }
   );
 
-export const deleteAccountData = onCall(async (request) => {
+exports.deleteAccountData = onCall(async (request: any) => {
   if (!request.auth) {
-    throw new HttpsError("unauthenticated",
-        "This function must be called while authenticated.");
+    throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
   }
-  const {uid} = request.auth;
+  const { uid } = request.auth;
   try {
-    // Delete Firestore data
-    await db.recursiveDelete(db.collection("aiProfiles").doc(uid));
-    // Delete Firebase Auth user
+    await db.recursiveDelete(db.collection('aiProfiles').doc(uid));
     await getAuth().deleteUser(uid);
-    return {success: true};
+    return { success: true };
   } catch (error) {
     console.error("Error deleting account data:", error);
-    throw new HttpsError("internal", "Failed to delete account data.", error);
+    throw new HttpsError("internal", "Failed to delete account data.");
   }
 });
 
-export const performWebSearch = onRequest(
-    {secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"]},
-    async (req, res) => {
-    // This is now a standard HTTPS function for server-to-server calls.
-      const {query} = req.body.data;
+exports.uploadImage = onCall(async (request: any) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+  }
+  const { imageData, fileName } = request.data;
+  const uid = request.auth.uid;
+  const bucket = getStorage().bucket();
+  const buffer = Buffer.from(imageData, 'base64');
+  const filePath = `user-uploads/${uid}/images/${fileName}`;
+  const file = bucket.file(filePath);
+  const stream = new Readable();
+  stream.push(buffer);
+  stream.push(null);
+
+  return new Promise((resolve, reject) => {
+    stream.pipe(file.createWriteStream())
+      .on("error", (error) => reject(new HttpsError("internal", `File upload failed: ${error.message}`)))
+      .on("finish", async () => {
+        await file.makePublic();
+        resolve({ fileUrl: file.publicUrl() });
+      });
+  });
+});
+
+
+exports.performWebSearch = onRequest(
+    { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
+    async (req: Request, res: Response) => {
+      const { query } = req.body.data;
       if (!query) {
-        res.status(400).send({error: "Missing 'query' in request body."});
+        res.status(400).send({ error: "Missing 'query' in request body." });
         return;
       }
-
+      
       const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
       const searchEngineId = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
-      const url = "https://www.googleapis.com/customsearch/v1?key=" +
-      `${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
-
-      console.log(`[performWebSearch] Performing search for: "${query}"`);
+      const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
 
       try {
         const response = await fetch(url);
         const responseData = await response.json();
-
+        
         if (!response.ok) {
           console.error("Google Search API Error:", responseData);
-          res.status(response.status)
-              .send({error: "Failed to fetch search results."});
+          res.status(response.status).send({ error: "Failed to fetch search results." });
           return;
         }
-
-        const results = responseData.items?.map((item: {
-          title: string,
-          link: string,
-          snippet: string
-        }) => ({
+        
+        const results = responseData.items?.map((item: any) => ({
           title: item.title,
           link: item.link,
           snippet: item.snippet,
         })) || [];
 
-        console.log(`[performWebSearch] Found ${results.length} results.`);
-        res.status(200).send({data: {results}});
+        res.status(200).send({ data: { results } });
+
       } catch (error) {
         console.error("Error in performWebSearch:", error);
-        res.status(500).send({error: "An unexpected error occurred."});
+        res.status(500).send({ error: "An unexpected error occurred." });
       }
     }
 );
-
-export {uploadImage};

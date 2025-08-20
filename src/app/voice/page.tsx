@@ -10,10 +10,15 @@ import { MicVAD, utils } from '@ricky0123/vad-web';
 
 const WEBSOCKET_URL = "wss://voice-server-709848175384.us-central1.run.app";
 
+type TranscriptEntry = {
+  speaker: 'user' | 'ai';
+  text: string;
+};
+
 export default function VoicePage() {
   const { toast } = useToast();
   const [isRecording, setIsRecording] = useState(false);
-  const [transcription, setTranscription] = useState('');
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   
   const vadRef = useRef<MicVAD | null>(null);
@@ -21,7 +26,6 @@ export default function VoicePage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   
-  // Refs for audio visualization
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -94,7 +98,6 @@ export default function VoicePage() {
         });
         mediaStreamRef.current = stream;
 
-        // --- Audio Visualization Setup ---
         const audioContext = new AudioContext();
         audioContextRef.current = audioContext;
         const source = audioContext.createMediaStreamSource(stream);
@@ -105,9 +108,8 @@ export default function VoicePage() {
         source.connect(analyser);
         drawWaveform();
 
-        // --- VAD Setup ---
         const newVad = await MicVAD.new({
-          stream: stream, // Pass the stream here
+          stream: stream,
           onSpeechStart: () => setIsSpeaking(true),
           onSpeechEnd: (audio) => {
             setIsSpeaking(false);
@@ -120,23 +122,30 @@ export default function VoicePage() {
         });
         vadRef.current = newVad;
         
-        // --- WebSocket Setup ---
         const newSocket = new WebSocket(WEBSOCKET_URL);
         socketRef.current = newSocket;
 
         newSocket.onopen = () => {
-          console.log('WebSocket connected to production voice server.');
+          console.log('WebSocket connected.');
           newVad.start();
           setIsRecording(true);
         };
         newSocket.onmessage = (event) => {
           const data = JSON.parse(event.data);
-          console.log("Received from server:", data);
-          setTranscription(prev => `${prev} ${data.text}`);
+          
+          if (data.type === 'user_transcript') {
+            setTranscript(prev => [...prev, { speaker: 'user', text: data.text }]);
+          } else if (data.type === 'ai_response') {
+            setTranscript(prev => [...prev, { speaker: 'ai', text: data.text }]);
+            if (data.audio) {
+              const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
+              audio.play();
+            }
+          }
         };
         newSocket.onerror = (error) => {
           console.error('WebSocket error:', error);
-          toast({ variant: 'destructive', title: 'Connection Error', description: 'Could not connect to the voice service.' });
+          toast({ variant: 'destructive', title: 'Connection Error' });
           stopRecording();
         };
         newSocket.onclose = () => {
@@ -144,13 +153,12 @@ export default function VoicePage() {
           stopRecording();
         };
 
-        setTranscription('');
+        setTranscript([]);
       } catch (error) {
         console.error('Error initializing VAD:', error);
         toast({
           variant: 'destructive',
           title: 'Microphone Access Denied',
-          description: 'Please enable microphone permissions in your browser settings.',
         });
       }
     }
@@ -182,7 +190,11 @@ export default function VoicePage() {
 
       <div className="mt-8 p-4 border rounded-lg w-full max-w-2xl min-h-[100px] bg-card text-card-foreground">
         <p className="text-sm text-muted-foreground">Transcript:</p>
-        <p>{transcription}</p>
+        {transcript.map((entry, index) => (
+          <p key={index} className={cn(entry.speaker === 'user' ? 'text-right' : 'text-left')}>
+            <strong>{entry.speaker === 'user' ? 'You:' : 'Shravya AI:'}</strong> {entry.text}
+          </p>
+        ))}
       </div>
     </div>
   );

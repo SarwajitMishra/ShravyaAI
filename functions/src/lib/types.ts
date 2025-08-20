@@ -1,14 +1,7 @@
 
-// --- Core AI and Data Types ---
-
-export type Persona = "Friend" | "Teacher" | "Spiritual" | "Pro" |
-"Storyteller";
+export type Persona = "Friend" | "Teacher" | "Spiritual" | "Pro" | "Storyteller";
 export type Mode = Persona;
-export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|
-"Malayalam"|"English"|"auto";
-
-// --- Firestore Models ---
-// These are the base structures for documents in Firestore.
+export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|"Malayalam"|"English"|"auto";
 
 export type AiProfile = {
   uid: string;
@@ -30,8 +23,6 @@ export type AiSession = {
   createdAt: number;
   updatedAt: number;
   isArchived?: boolean;
-  // This messages array is a client-side convenience;
-  // it's not stored on the session document.
   messages: AiMessage[];
 };
 
@@ -47,13 +38,7 @@ export type AiMessage = {
   mode: Mode;
   languageIntent: LangIntent;
   createdAt: number;
-  // Client-side fields
   displayContent?: string;
   isRoman?: boolean;
   isError?: boolean;
 };
-
-
-// --- UI-Specific Types ---
-
-export type QuickChipAction = "explain" | "fun" | "steps";

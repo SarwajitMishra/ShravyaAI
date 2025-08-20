@@ -18,6 +18,7 @@ export type ConversationalResponseInput = z.infer<typeof ConversationalResponseI
 // Define the output schema for the conversationalResponse flow
 const ConversationalResponseOutputSchema = z.object({
   response: z.string(),
+  audio: z.string().optional(), // Audio will be a Base64 encoded string
 });
 export type ConversationalResponseOutput = z.infer<typeof ConversationalResponseOutputSchema>;
 
@@ -54,8 +55,24 @@ export const conversationalResponse = ai.defineFlow(
       Based on the latest user prompt ("${userPrompt}"), generate a helpful and conversational response that is consistent with your persona.`,
       model: 'googleai/gemini-1.5-flash-latest',
       tools: [webSearch],
+      config: {
+        // @ts-ignore
+        speechConfig: {
+          voice: 'en-IN-Neural2-A', // Young Indian Lady voice
+        },
+        output: {
+          format: 'audio',
+        }
+      }
     });
 
-    return { response: llmResponse.text };
+    const output = llmResponse.output();
+    const textResponse = output?.text || '';
+    const audioResponse = output?.audio;
+
+    return { 
+      response: textResponse,
+      audio: audioResponse,
+    };
   }
 );
