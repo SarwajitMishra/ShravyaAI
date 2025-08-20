@@ -92,7 +92,7 @@ export async function getAiResponse(
         stack: error.stack,
         name: error.name,
     });
-    responseContent = "I'm having a little trouble right now. Please try again in a moment.";
+    responseContent = `I'm having a little trouble right now. Please try again in a moment. (Error: ${error.message})`;
     isError = true;
   }
   
