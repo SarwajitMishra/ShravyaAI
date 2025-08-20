@@ -2,6 +2,9 @@
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import fetch from 'node-fetch';
+import wav from 'wav';
+import { Readable } from 'stream';
+
 
 // Strict Production Configuration:
 // These environment variables MUST be provided by the Cloud Run environment.
@@ -24,6 +27,38 @@ const wss = new WebSocketServer({ server });
 
 console.log(`Voice-Mode WebSocket server starting on port ${PORT}, configured to callback to: ${WEB_APP_URL}`);
 
+const float32To16BitPcm = (float32Arr) => {
+    const pcm16 = new Int16Array(float32Arr.length);
+    for (let i = 0; i < float32Arr.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Arr[i]));
+      pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return pcm16;
+};
+
+const encodeWav = (samples, sampleRate) => {
+    const pcmSamples = float32To16BitPcm(samples);
+    const buffer = new Buffer.from(pcmSamples.buffer);
+    
+    const readable = new Readable();
+    readable.push(buffer);
+    readable.push(null);
+    
+    const wavWriter = new wav.Writer({
+        sampleRate: sampleRate,
+        channels: 1,
+        bitDepth: 16,
+    });
+
+    const chunks = [];
+    return new Promise((resolve, reject) => {
+        wavWriter.on('data', chunk => chunks.push(chunk));
+        wavWriter.on('end', () => resolve(Buffer.concat(chunks)));
+        wavWriter.on('error', reject);
+        readable.pipe(wavWriter);
+    });
+};
+
 wss.on('connection', function connection(ws) {
   console.log('Client connected for a voice session.');
   let audioBuffer = [];
@@ -36,7 +71,11 @@ wss.on('connection', function connection(ws) {
         console.log('End of speech detected. Processing audio...');
         
         const completeAudioBuffer = Buffer.concat(audioBuffer);
-        const base64Audio = `data:audio/webm;base64,${completeAudioBuffer.toString('base64')}`;
+        // Assuming the incoming data is raw float32, which is what VAD provides
+        const float32Array = new Float32Array(completeAudioBuffer.buffer, completeAudioBuffer.byteOffset, completeAudioBuffer.length / Float32Array.BYTES_PER_ELEMENT);
+        
+        const wavBuffer = await encodeWav(float32Array, 16000); // VAD default sample rate is 16000
+        const base64Audio = `data:audio/wav;base64,${wavBuffer.toString('base64')}`;
 
         try {
             const transcribeResponse = await fetch(API_URL, {
@@ -67,6 +106,7 @@ wss.on('connection', function connection(ws) {
         audioBuffer = [];
       }
     } catch (error) {
+      // If it's not JSON, it's audio data
       audioBuffer.push(data);
     }
   });
