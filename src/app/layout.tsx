@@ -7,9 +7,9 @@ import { Analytics } from "@vercel/analytics/react"
 import { SpeedInsights } from "@vercel/speed-insights/next"
 
 import { Toaster } from "@/components/ui/toaster";
-import { AuthProvider } from "@/app/auth-provider";
-import AuthWrapper from "@/app/auth-wrapper";
-import { ThemeProvider } from "@/app/theme-provider";
+import { AuthProvider } from "@/components/providers/auth-provider";
+import AuthWrapper from "@/components/providers/auth-wrapper";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });

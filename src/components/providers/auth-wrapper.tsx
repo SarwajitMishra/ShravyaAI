@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useAuth } from "@/app/auth-provider";
+import { useAuth } from "@/components/providers/auth-provider";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { ThinkingBubble } from "@/components/thinking-bubble";

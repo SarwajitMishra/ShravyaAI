@@ -6,7 +6,7 @@ import { getFirestore, collection, query, orderBy, onSnapshot, doc, getDocs, Doc
 import { getFunctions, httpsCallable } from "firebase/functions";
 import type { Persona, AiSession, AiMessage } from '@/lib/types';
 import { getAiResponse } from '@/app/actions';
-import { useAuth } from '@/app/auth-provider';
+import { useAuth } from '@/components/providers/auth-provider';
 import { app as firebaseApp } from '@/lib/firebase';
 
 const db = getFirestore(firebaseApp);
