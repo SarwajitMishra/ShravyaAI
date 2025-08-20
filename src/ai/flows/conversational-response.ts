@@ -4,6 +4,8 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { webSearch } from './web-search';
+import { googleAI } from '@genkit-ai/googleai';
+import wav from 'wav';
 
 // Define the input schema for the conversationalResponse flow
 const ConversationalResponseInputSchema = z.object({
@@ -22,6 +24,33 @@ const ConversationalResponseOutputSchema = z.object({
 });
 export type ConversationalResponseOutput = z.infer<typeof ConversationalResponseOutputSchema>;
 
+async function toWav(
+  pcmData: Buffer,
+  channels = 1,
+  rate = 24000,
+  sampleWidth = 2
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const writer = new wav.Writer({
+      channels,
+      sampleRate: rate,
+      bitDepth: sampleWidth * 8,
+    });
+
+    let bufs = [] as any[];
+    writer.on('error', reject);
+    writer.on('data', function (d) {
+      bufs.push(d);
+    });
+    writer.on('end', function () {
+      resolve(Buffer.concat(bufs).toString('base64'));
+    });
+
+    writer.write(pcmData);
+    writer.end();
+  });
+}
+
 export const conversationalResponse = ai.defineFlow(
   {
     name: 'conversationalResponse',
@@ -32,7 +61,8 @@ export const conversationalResponse = ai.defineFlow(
     const { history, persona } = input;
     const userPrompt = history[history.length - 1]?.content || '';
 
-    const llmResponse = await ai.generate({
+    // Step 1: Generate the text response
+    const textGenerationResponse = await ai.generate({
       prompt: `You are an AI assistant with a specific persona: ${persona}. 
       Your conversation history with the user is as follows:
       ${JSON.stringify(history)}
@@ -55,20 +85,37 @@ export const conversationalResponse = ai.defineFlow(
       Based on the latest user prompt ("${userPrompt}"), generate a helpful and conversational response that is consistent with your persona.`,
       model: 'googleai/gemini-1.5-flash-latest',
       tools: [webSearch],
-      config: {
-        responseModalities: ['TEXT', 'AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: 'en-IN-Neural2-A', // Young Indian Lady voice
-            },
-          },
-        },
-      }
     });
     
-    const textResponse = llmResponse.text;
-    const audioResponse = llmResponse.media?.url;
+    const textResponse = textGenerationResponse.text;
+    let audioResponse: string | undefined = undefined;
+
+    // Step 2: Generate the audio from the text response
+    if (textResponse) {
+        const { media } = await ai.generate({
+            model: googleAI.model('gemini-2.5-flash-preview-tts'),
+            prompt: textResponse,
+            config: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: {
+                            voiceName: 'en-IN-Neural2-A', // Young Indian Lady voice
+                        },
+                    },
+                },
+            },
+        });
+        
+        if (media?.url) {
+            const audioBuffer = Buffer.from(
+                media.url.substring(media.url.indexOf(',') + 1),
+                'base64'
+            );
+            audioResponse = 'data:audio/wav;base64,' + await toWav(audioBuffer);
+        }
+    }
+
 
     return { 
       response: textResponse,
