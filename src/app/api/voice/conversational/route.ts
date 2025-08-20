@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { conversationalResponse } from '@/ai/flows/conversational-response';
+import { conversationalVoiceResponse } from '@/ai/flows/conversational-voice-response';
 import { Persona } from '@/lib/types';
 
 export async function POST(req: NextRequest) {
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing history or persona' }, { status: 400 });
     }
 
-    const { response, audio } = await conversationalResponse({ 
+    const { response, audio } = await conversationalVoiceResponse({ 
       history, 
       persona: persona as Persona 
     });
