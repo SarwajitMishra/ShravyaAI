@@ -56,19 +56,19 @@ export const conversationalResponse = ai.defineFlow(
       model: 'googleai/gemini-1.5-flash-latest',
       tools: [webSearch],
       config: {
-        // @ts-ignore
+        responseModalities: ['TEXT', 'AUDIO'],
         speechConfig: {
-          voice: 'en-IN-Neural2-A', // Young Indian Lady voice
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: 'en-IN-Neural2-A', // Young Indian Lady voice
+            },
+          },
         },
-        output: {
-          format: 'audio',
-        }
       }
     });
-
-    const output = llmResponse.output;
-    const textResponse = output?.text || '';
-    const audioResponse = output?.audio;
+    
+    const textResponse = llmResponse.text;
+    const audioResponse = llmResponse.media?.url;
 
     return { 
       response: textResponse,
