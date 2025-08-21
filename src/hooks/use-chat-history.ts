@@ -2,10 +2,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, getDocs, DocumentData } from "firebase/firestore";
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import type { Persona, AiSession, AiMessage } from '@/lib/types';
-import { getAiResponse } from '@/app/actions';
+import type { Persona, AiSession, AiMessage, UserProfile } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
 import { app as firebaseApp } from '@/lib/firebase';
 
@@ -16,9 +15,9 @@ const initialPersona: Persona = 'Friend';
 // Callable functions
 const ensureProfile = httpsCallable(functions, 'ensureProfile');
 const createNewSession = httpsCallable(functions, 'createNewSession');
-const appendUserMessage = httpsCallable(functions, 'appendUserMessage');
 const updateSession = httpsCallable(functions, 'updateSession');
 const deleteSession = httpsCallable(functions, 'deleteSession');
+const appendUserMessageAndGetResponse = httpsCallable(functions, 'appendUserMessageAndGetResponse');
 
 export function useChatHistory() {
   const { user, loading } = useAuth();
@@ -26,9 +25,26 @@ export function useChatHistory() {
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
   
   const activeConversation = sessions.find(s => s.id === activeSessionId);
   const activePersona = activeConversation?.mode || initialPersona;
+
+  // Effect to fetch user profile
+  useEffect(() => {
+    if (!user) {
+      setUserProfile(null);
+      return;
+    }
+    const profileRef = doc(db, `aiProfiles/${user.uid}`);
+    const unsubscribe = onSnapshot(profileRef, (doc) => {
+      if (doc.exists()) {
+        setUserProfile(doc.data().profile as UserProfile);
+      }
+    });
+    return unsubscribe;
+  }, [user]);
 
   const startNewConversation = useCallback(async (persona: Persona) => {
     if (!user) return;
@@ -91,7 +107,7 @@ export function useChatHistory() {
   }, [sessions, activePersona, startNewConversation]);
 
   const sendMessage = useCallback(async (content: string, persona: Persona, imageUrls?: string[]) => {
-    if (!user || !activeSessionId) return;
+    if (!user || !activeSessionId || !userProfile) return;
     const sessionId = activeSessionId;
     setIsPending(true);
     try {
@@ -101,19 +117,55 @@ export function useChatHistory() {
         await updateSession({ sessionId, updates: { title: content.substring(0, 20) } });
       }
 
-      const userMessage: Omit<AiMessage, 'id'> = { role: 'user', content, imageUrls, mode: persona, languageIntent: 'auto', createdAt: Date.now(), showScript: false };
-      await appendUserMessage({ sessionId, message: userMessage });
+      const userMessage = {
+        role: 'user',
+        parts: [{ text: content }],
+      };
 
-      const messagesSnapshot = await getDocs(query(collection(db, `aiProfiles/${user.uid}/sessions/${sessionId}/messages`), orderBy("createdAt", "asc")));
-      const historyForAi = messagesSnapshot.docs.map(doc => doc.data() as AiMessage);
+      const context = {
+        persona,
+        lang: 'auto',
+        hasImage: !!imageUrls?.length,
+        safetySensitive: false, // Replace with actual detection logic
+        userTier: userProfile.tier || 'free',
+      };
 
-      const { content: aiContent, nativeScript, isError } = await getAiResponse(historyForAi, persona);
-      const aiMessage: Omit<AiMessage, 'id'> = { role: 'assistant', content: aiContent, nativeScriptLine: nativeScript, isError, mode: persona, languageIntent: 'auto', createdAt: Date.now(), showScript: false };
-      await appendUserMessage({ sessionId, message: aiMessage });
+      await appendUserMessageAndGetResponse({ sessionId, message: userMessage, context });
+
     } finally {
       setIsPending(false);
     }
-  }, [user, activeSessionId, messages]);
+  }, [user, activeSessionId, messages, userProfile]);
+
+  const regenerateLastMessage = useCallback(async () => {
+    if (!user || !activeSessionId || messages.length === 0 || !userProfile) return;
+    
+    const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0];
+    if (!lastUserMessage) return;
+
+
+    setIsPending(true);
+    try {
+        const context = {
+            persona: activePersona,
+            lang: 'auto',
+            hasImage: false,
+            safetySensitive: false,
+            userTier: userProfile.tier || 'free',
+          };
+      
+          await appendUserMessageAndGetResponse({
+            sessionId: activeSessionId,
+            message: { role: 'user', parts: [{ text: lastUserMessage.content }] },
+            context,
+          });
+
+    } catch (error) {
+      console.error("Error regenerating message:", error);
+    } finally {
+      setIsPending(false);
+    }
+  }, [user, activeSessionId, messages, activePersona, userProfile]);
 
   const deleteConversation = useCallback(async (sessionId: string) => {
     if (!user) return;
@@ -143,5 +195,6 @@ export function useChatHistory() {
     deleteConversation,
     renameConversation,
     archiveConversation,
+    regenerateLastMessage,
   };
 }

@@ -36,7 +36,6 @@ import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { transcribeAudio } from "@/app/actions";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -79,6 +78,22 @@ type UploadingFile = {
   progress: number; 
 };
 
+// Culturally aware greetings
+const greetings: { [locale: string]: { morning: string; afternoon: string; evening: string } } = {
+  "en-IN": { morning: "Namaste", afternoon: "Namaste", evening: "Namaste" },
+  "hi-IN": { morning: "नमस्ते", afternoon: "नमस्ते", evening: "नमस्ते" },
+  "bn-IN": { morning: "নমস্কার", afternoon: "নমস্কার", evening: "নমস্কার" },
+  "te-IN": { morning: "నమస్కారం", afternoon: "నమస్కారం", evening: "నమస్కారం" },
+  "mr-IN": { morning: "नमस्कार", afternoon: "नमस्कार", evening: "नमस्कार" },
+  "ta-IN": { morning: "வணக்கம்", afternoon: "வணக்கம்", evening: "வணக்கம்" },
+  "gu-IN": { morning: "નમસ્તે", afternoon: "નમસ્તે", evening: "નમસ્તે" },
+  "kn-IN": { morning: "ನಮಸ್ಕಾರ", afternoon: "ನಮಸ್ಕಾರ", evening: "ನಮಸ್ಕಾರ" },
+  "ml-IN": { morning: "നമസ്കാരം", afternoon: "നമസ്കാരം", evening: "നമസ്കാരം" },
+  "pa-IN": { morning: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ", afternoon: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ", evening: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ" },
+  "en-US": { morning: "Good Morning", afternoon: "Good Afternoon", evening: "Good Evening" },
+  "en-GB": { morning: "Good Morning", afternoon: "Good Afternoon", evening: "Good Evening" },
+};
+
 export function ChatClient() {
   const { user, loading, logout } = useAuth();
   const isLoggedIn = !!user;
@@ -98,6 +113,7 @@ export function ChatClient() {
     archiveConversation,
     activePersona,
     handlePersonaChange,
+    regenerateLastMessage,
   } = useChatHistory();
 
   const [input, setInput] = useState("");
@@ -247,9 +263,8 @@ export function ChatClient() {
           reader.onloadend = async () => {
             const base64Audio = reader.result as string;
             setInput("Transcribing audio, please wait...");
-            const languageIntent = activeConversation?.languageIntent || 'auto';
-            const { transcription } = await transcribeAudio(base64Audio, languageIntent);
-            setInput(transcription);
+            // TODO: Replace with a call to the new transcribeAudio Cloud Function
+            setInput("Audio transcription not implemented yet.");
           };
           stream.getTracks().forEach(track => track.stop());
         });
@@ -280,16 +295,24 @@ export function ChatClient() {
   };
 
   const [greeting, setGreeting] = useState("");
+  const [userLocale, setUserLocale] = useState("en-US");
 
   useEffect(() => {
-    const getGreeting = () => {
-      const hour = new Date().getHours();
-      if (hour < 12) return "Good Morning";
-      if (hour < 18) return "Good Afternoon";
-      return "Good Evening";
-    };
-    setGreeting(getGreeting());
+    setUserLocale(navigator.language || "en-US");
   }, []);
+
+  useEffect(() => {
+    const getGreeting = (locale: string) => {
+      const hour = new Date().getHours();
+      const defaultGreeting = greetings["en-US"];
+      const localizedGreeting = greetings[locale] || defaultGreeting;
+
+      if (hour < 12) return localizedGreeting.morning;
+      if (hour < 18) return localizedGreeting.afternoon;
+      return localizedGreeting.evening;
+    };
+    setGreeting(getGreeting(userLocale));
+  }, [userLocale]);
   
   const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0;
 
@@ -637,7 +660,7 @@ export function ChatClient() {
                     </div>
                 ) : (
                     activeConversation?.messages?.map((message: AiMessage) => (
-                        <ChatMessage key={message.id} message={message} onRegenerate={() => { /* Not implemented */ }} onScriptToggle={() => { /* Not implemented */ }} />
+                        <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateLastMessage()} onScriptToggle={() => { /* Not implemented */ }} />
                     ))
                 )}
                 {isPending && <ThinkingBubble />}

@@ -20,6 +20,16 @@ export type AiProfile = {
   lastSeenAt: number;
 };
 
+export type UserProfile = {
+  uid: string;
+  displayName?: string;
+  email?: string;
+  phoneNumber?: string;
+  tier: 'free' | 'pro';
+  createdAt: number;
+  lastSeenAt: number;
+};
+
 export type AiSession = {
   id: string;
   uid: string;
