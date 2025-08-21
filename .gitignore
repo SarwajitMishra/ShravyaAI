@@ -42,4 +42,11 @@ next-env.d.ts
 
 # firebase
 firebase-debug.log
-firestore-debug.log
+firestore-debug.log.firebase/
+.next/
+functions/.next/
+dist/
+build/
+out/
+.turbo/
+.vercel/
