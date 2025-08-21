@@ -35,4 +35,3 @@ function getCurrentEvent(locale) {
     }
     return null;
 }
-//# sourceMappingURL=cultural-calendar.js.map

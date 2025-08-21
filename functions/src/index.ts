@@ -1,8 +1,8 @@
 
-import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { Readable } from "stream";
@@ -30,8 +30,37 @@ interface TurnContext {
 interface Message {
     role: 'user' | 'model';
     parts: Part[];
-    createdAt?: string;
+    createdAt?: string | FieldValue;
+    // Allow for the old message format
+    content?: string;
 }
+
+// --- Request/Response Shapes ---
+interface AppendUserMessageAndGetResponseReq {
+  sessionId: string;
+  message: Message;
+  context: TurnContext;
+}
+interface AppendUserMessageAndGetResponseRes {
+  messageId: string;
+  text: string;
+  modelUsed: string;
+}
+
+interface EnsureProfileReq { defaults?: Partial<{ tier: UserTier; defaultMode: Persona; languageIntent: LangIntent }> }
+interface EnsureProfileRes { success: boolean }
+
+interface CreateNewSessionReq { title: string; mode: Persona; languageIntent: LangIntent }
+interface CreateNewSessionRes { sessionId: string }
+
+interface UpdateSessionReq { sessionId: string; updates: Record<string, unknown> }
+interface UpdateSessionRes { success: boolean }
+
+interface DeleteSessionReq { sessionId: string }
+interface DeleteSessionRes { success: boolean }
+
+interface UploadImageReq { imageData: string; fileName: string }
+interface UploadImageRes { fileUrl: string }
 
 
 // --- Firebase and Vertex AI Initialization ---
@@ -43,20 +72,24 @@ const vertexAi = new VertexAI({ project: process.env.GCLOUD_PROJECT, location: '
 const safetySettings = [
     {
         category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     },
     {
         category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     },
     {
         category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     },
     {
         category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     },
+    {
+        category: HarmCategory.HARM_CATEGORY_UNSPECIFIED,
+        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    }
 ];
 
 // --- Core Logic Functions ---
@@ -70,36 +103,33 @@ function createHash(input: string): string {
     return crypto.createHash('md5').update(input).digest('hex');
 }
 
-/**
- * Gets a response from the cache if it exists and is not expired.
- * @param key The cache key.
- * @returns The cached response or null.
- */
 async function getCache(key: string): Promise<string | null> {
     const docRef = db.collection('cache').doc(key);
-    const doc = await docRef.get();
-    if (doc.exists) {
-        const data = doc.data();
-        // Cache expires after 6 hours
-        if (data && (new Date().getTime() - data.createdAt.toMillis()) < 6 * 60 * 60 * 1000) {
-            return data.response;
-        }
+    const snap = await docRef.get();
+    if (!snap.exists) return null;
+  
+    const data = snap.data() as { response: string; createdAt?: Timestamp | Date | string } | undefined;
+    if (!data) return null;
+  
+    let createdMs = 0;
+    const created = data.createdAt;
+    if (created instanceof Timestamp) createdMs = created.toMillis();
+    else if (created instanceof Date) createdMs = created.getTime();
+    else if (typeof created === 'string') createdMs = Date.parse(created);
+  
+    // 6 hours
+    if (createdMs && (Date.now() - createdMs) < 6 * 60 * 60 * 1000) {
+      return data.response;
     }
     return null;
-}
-
-/**
- * Sets a response in the cache.
- * @param key The cache key.
- * @param response The response to cache.
- */
-async function setCache(key: string, response: string): Promise<void> {
-    const docRef = db.collection('cache').doc(key);
-    await docRef.set({
-        response,
-        createdAt: new Date(),
+  }
+  
+  async function setCache(key: string, response: string): Promise<void> {
+    await db.collection('cache').doc(key).set({
+      response,
+      createdAt: FieldValue.serverTimestamp(),
     });
-}
+  }
 
 
 /**
@@ -113,10 +143,9 @@ function detectComplexity(prompt: string): boolean {
 }
 
 /**
- * Truncates the conversation history to stay within a token limit.
- * A simple character count is used as a proxy for token count.
+ * Truncates context, handling both old and new message formats.
  * @param messages The array of messages.
- * @param maxChars The maximum number of characters to allow.
+ * @param maxChars Max characters to allow.
  * @returns The truncated array of messages.
  */
 function truncateContext(messages: Message[], maxChars = 12000): Message[] {
@@ -125,15 +154,22 @@ function truncateContext(messages: Message[], maxChars = 12000): Message[] {
 
     for (let i = messages.length - 1; i >= 0; i--) {
         const message = messages[i];
-        // Assuming the first part is the primary text content
-        const content = message.parts[0]?.text || '';
+        let content = '';
+
+        // Handle new format (parts array)
+        if (Array.isArray(message.parts) && message.parts.length > 0 && message.parts[0].text) {
+            content = message.parts[0].text;
+        // Handle old format (content string)
+        } else if (typeof message.content === 'string') {
+            content = message.content;
+        }
+
         const messageChars = content.length;
 
         if (totalChars + messageChars <= maxChars) {
             truncatedMessages.unshift(message);
             totalChars += messageChars;
         } else {
-            // Stop adding messages if we've reached the limit
             break;
         }
     }
@@ -160,17 +196,17 @@ function detectRomanized(text: string): boolean {
  * @returns The selected model name and the reason for the choice.
  */
 function chooseModel(ctx: TurnContext): { model: string; reason: string } {
-    let model = 'gemini-1.5-flash';
+    let model = 'gemini-1.5-flash-latest';
     let reason = 'default';
 
     if (ctx.hasImage) {
-        model = 'gemini-1.5-flash-vision';
+        model = 'gemini-1.5-flash-latest'; // Vision is included in the base model
         reason = 'image';
     }
 
     if (ctx.needsReasoning || ctx.safetySensitive) {
         if (ctx.userTier === 'pro') {
-            model = 'claude-3.5-sonnet'; // or 'gpt-4o'
+            model = 'gemini-1.5-pro-latest'; 
             reason = 'reasoning/safety';
         }
     }
@@ -221,266 +257,246 @@ function normalizeTone(text: string): string {
 
 /** ------------------ v2 Callables ------------------ */
 
-exports.appendUserMessageAndGetResponse = onCall(
-    { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
-    async (request: any) => {
-        if (!request.auth) {
-            throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
-        }
+export const appendUserMessageAndGetResponse = onCall<
+  AppendUserMessageAndGetResponseReq,
+  Promise<AppendUserMessageAndGetResponseRes>
+>(async (request: CallableRequest<AppendUserMessageAndGetResponseReq>) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
 
-        const { uid } = request.auth;
-        const { sessionId, message, context } = request.data;
+  const { uid } = request.auth;
+  const { sessionId, message, context } = request.data || ({} as AppendUserMessageAndGetResponseReq);
+  if (!sessionId || !message || !context) {
+    throw new HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
+  }
 
-        if (!sessionId || !message || !context) {
-            throw new HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
-        }
+  // Derive plain text from message (new parts[] or legacy content)
+  const firstPartText =
+    Array.isArray(message.parts) && message.parts[0] && 'text' in message.parts[0]
+      ? (message.parts[0] as any).text ?? ''
+      : (message.content ?? '');
 
-        // 1. Append the user's message to Firestore
-        const now = new Date().toISOString();
-        const userMessage: Message = { ...message, createdAt: now };
+  // 1) Append user message
+  const userMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+  await userMessageRef.set({
+    ...message,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({ updatedAt: FieldValue.serverTimestamp() });
 
-        const userMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-        await userMessageRef.set(userMessage);
-        await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({ updatedAt: now });
+  // 2) Cache
+  const promptText = (firstPartText || '').trim();
+  const cacheKey = createHash(`${context.persona}|${context.lang}|${promptText}`);
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+    await modelMessageRef.set({
+      role: 'model',
+      parts: [{ text: cached }],
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { messageId: modelMessageRef.id, text: cached, modelUsed: 'cache' };
+  }
 
-        // 2. Check cache for a response
-        const promptText = message.parts[0].text;
-        const cacheKey = createHash(promptText);
-        const cachedResponse = await getCache(cacheKey);
+  // 3) Context + model choice
+  const turnContext: TurnContext = {
+    ...context,
+    needsReasoning: detectComplexity(promptText),
+  };
+  const { model, reason } = chooseModel(turnContext);
+  logger.info(`Selected model: ${model} for ${uid} due to: ${reason}`);
 
-        if (cachedResponse) {
-            logger.info(`Cache hit for prompt: "${promptText}"`);
-            const modelMessage: Message = {
-                role: 'model',
-                parts: [{ text: cachedResponse }],
-                createdAt: new Date().toISOString(),
-            };
-            const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-            await modelMessageRef.set(modelMessage);
-            return {
-                messageId: modelMessageRef.id,
-                text: cachedResponse,
-                modelUsed: 'cache',
-            };
-        }
+  let systemPrompt = getSystemPrompt(turnContext.persona);
+  if (detectRomanized(promptText)) systemPrompt += " Please respond in Hinglish.";
 
+  const currentEvent = getCurrentEvent(turnContext.locale || 'en-IN');
+  if (currentEvent) systemPrompt += ` Also, please acknowledge the current festival of ${currentEvent}.`;
 
-        // 3. Prepare context for the LLM
-        const turnContext: TurnContext = {
-            ...context,
-            needsReasoning: detectComplexity(message.parts[0].text),
-        };
+  // 4) History
+  const histSnap = await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`)
+    .orderBy('createdAt', 'desc')
+    .limit(20)
+    .get();
 
-        const { model, reason } = chooseModel(turnContext);
-        logger.info(`Selected model: ${model} for user ${uid} due to: ${reason}`);
+  const history = histSnap.docs.map(d => d.data() as Message).reverse();
+  const truncatedHistory = truncateContext(history);
 
-        let systemPrompt = getSystemPrompt(turnContext.persona);
-        const isRomanized = detectRomanized(promptText);
-        if (isRomanized) {
-            systemPrompt += " Please respond in Hinglish.";
-        }
-        
-        const currentEvent = getCurrentEvent(turnContext.locale || 'en-IN');
-        if (currentEvent) {
-            systemPrompt += ` Also, please acknowledge the current festival of ${currentEvent}.`;
-        }
+  // 5) Generate
+  try {
+    const generativeModel = vertexAi.preview.getGenerativeModel({
+      model,
+      systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
+      safetySettings,
+      generationConfig: { maxOutputTokens: 2048, temperature: 0.8, topP: 0.9 },
+    });
 
+    const contents = [
+      ...truncatedHistory.map(m => {
+        if (m.parts && m.parts.length) return m;
+        // Normalize legacy messages to parts[]
+        return { role: m.role, parts: [{ text: m.content ?? '' }] } as Message;
+      }),
+      { role: 'user', parts: message.parts && message.parts.length ? message.parts : [{ text: promptText }] } as Message,
+    ];
 
-        // 4. Fetch recent message history
-        const historySnapshot = await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`)
-            .orderBy('createdAt', 'desc')
-            .limit(20) // Fetch more messages to have enough context for truncation
-            .get();
+    const resp = await generativeModel.generateContent({ contents });
+    let text = "Sorry, I couldn't generate a response.";
+    const cand0 = resp.response?.candidates?.[0]?.content?.parts?.[0];
+    if (cand0 && 'text' in cand0 && cand0.text) text = cand0.text;
 
-        const history = historySnapshot.docs.map(doc => doc.data() as Message).reverse();
-        const truncatedHistory = truncateContext(history);
+    const normalized = normalizeTone(text);
 
+    await setCache(cacheKey, normalized);
+    const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+    await modelMessageRef.set({
+      role: 'model',
+      parts: [{ text: normalized }],
+      createdAt: FieldValue.serverTimestamp(),
+    });
 
-        // 5. Call the selected Vertex AI model
-        try {
-            const generativeModel = vertexAi.preview.getGenerativeModel({
-                model,
-                systemInstruction: {
-                    role: 'system',
-                    parts: [{ text: systemPrompt }],
-                },
-                safetySettings,
-                generationConfig: {
-                    maxOutputTokens: 2048,
-                    temperature: 0.8,
-                    topP: 0.9,
-                },
-            });
-
-            const contents = [...truncatedHistory, { role: 'user', parts: message.parts }];
-
-            const resp = await generativeModel.generateContent({ contents });
-
-            let modelResponseText = "Sorry, I couldn't generate a response.";
-            if (resp.response.candidates && resp.response.candidates.length > 0 && resp.response.candidates[0].content.parts.length > 0) {
-                modelResponseText = resp.response.candidates[0].content.parts[0].text ?? modelResponseText;
-            }
-
-            const normalizedResponse = normalizeTone(modelResponseText);
-
-
-            // 6. Save the model's response to Firestore and cache
-            await setCache(cacheKey, normalizedResponse);
-            const modelMessage: Message = {
-                role: 'model',
-                parts: [{ text: normalizedResponse }],
-                createdAt: new Date().toISOString(),
-            };
-            const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-            await modelMessageRef.set(modelMessage);
-
-            return {
-                messageId: modelMessageRef.id,
-                text: normalizedResponse,
-                modelUsed: model,
-            };
-
-        } catch (error) {
-            logger.error("Error generating chat response:", error);
-
-            // Fallback mechanism
-            if (model !== 'gemini-1.5-flash') {
-                try {
-                    logger.warn(`Model ${model} failed, falling back to gemini-1.5-flash.`);
-                    const fallbackModel = vertexAi.preview.getGenerativeModel({ model: 'gemini-1.5-flash' });
-                    const fallbackResp = await fallbackModel.generateContent({
-                        contents: [...truncatedHistory, { role: 'user', parts: message.parts }],
-                    });
-
-                    if (fallbackResp.response.candidates && fallbackResp.response.candidates.length > 0) {
-                        const fallbackText = fallbackResp.response.candidates[0].content.parts[0].text ?? "No response";
-                        const normalizedFallback = normalizeTone(fallbackText);
-                        // Also save the fallback response
-                        const modelMessage: Message = { role: 'model', parts: [{ text: normalizedFallback }], createdAt: new Date().toISOString() };
-                        const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-                        await modelMessageRef.set(modelMessage);
-                        return { messageId: modelMessageRef.id, text: normalizedFallback, modelUsed: 'gemini-1.5-flash' };
-                    }
-                } catch (fallbackError) {
-                    logger.error("Fallback model also failed:", fallbackError);
-                }
-            }
-            
-            throw new HttpsError("internal", "Failed to generate chat response, even after fallback.");
-        }
-    }
-);
-
-
-exports.ensureProfile = onCall(
-    async (request: any) => {
-      if (!request.auth) {
-        throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
-      }
-      const { uid } = request.auth;
-      const defaults = request.data?.defaults || {};
-      
-      try {
-        const ref = db.doc(`aiProfiles/${uid}`);
-        const snap = await ref.get();
-        const now = new Date().toISOString();
-
-        if (!snap.exists) {
-          const newProfile = {
-            profile: {
-              uid,
-              displayName: request.auth.token.name || "",
-              defaultMode: "Friend",
-              languageIntent: "auto",
-              tier: 'free', // Set default tier
-              createdAt: now,
-              lastSeenAt: now,
-              ...defaults,
-            },
-          };
-          await ref.set(newProfile);
-        } else {
-          const updatedProfile: { [key: string]: any } = {
-            "profile.lastSeenAt": now,
-            ...defaults,
-          };
-          // Ensure tier exists if profile is old
-          if (!snap.data()?.profile?.tier) {
-            updatedProfile["profile.tier"] = 'free';
-          }
-          await ref.update(updatedProfile);
-        }
-        return {success: true};
-      } catch (error) {
-        console.error("Error in ensureProfile:", error);
-        throw new HttpsError("internal", "Failed to ensure profile.");
-      }
-    }
-);
-
-exports.createNewSession = onCall(
-    async (request: any) => {
-      if (!request.auth) {
-        throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
-      }
-      const { uid } = request.auth;
-      const { title, mode, languageIntent } = request.data;
-
-      try {
-        const ref = db.collection(`aiProfiles/${uid}/sessions`).doc();
-        const now = new Date().toISOString();
-        const newSession = {
-          title,
-          mode,
-          languageIntent,
-          isPremiumSnapshot: false,
-          createdAt: now,
-          updatedAt: now,
-        };
-        await ref.set(newSession);
-        return {sessionId: ref.id};
-      } catch (error) {
-        console.error("Error in createNewSession:", error);
-        throw new HttpsError("internal", "Failed to create a new session.");
-      }
-    }
-);
-
-exports.updateSession = onCall(
-    async (request: any) => {
-      if (!request.auth) {
-        throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
-      }
-      const { uid } = request.auth;
-      const { sessionId, updates } = request.data;
-      await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({
-        ...updates,
-        updatedAt: new Date().toISOString(),
+    return { messageId: modelMessageRef.id, text: normalized, modelUsed: model };
+  } catch (error) {
+    logger.error("Primary model error:", error);
+    // Fallback to flash
+    try {
+      const fallback = vertexAi.preview.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+      const fallbackResp = await fallback.generateContent({
+        contents: [
+          ...truncatedHistory.map(m => (m.parts?.length ? m : { role: m.role, parts: [{ text: m.content ?? '' }] })),
+          { role: 'user', parts: message.parts?.length ? message.parts : [{ text: promptText }] } as Message,
+        ],
       });
-      return {success: true};
+      const f0 = fallbackResp.response?.candidates?.[0]?.content?.parts?.[0];
+      const text = (f0 && 'text' in f0 && f0.text) ? f0.text : "No response";
+      const normalized = normalizeTone(text);
+
+      const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+      await modelMessageRef.set({
+        role: 'model',
+        parts: [{ text: normalized }],
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { messageId: modelMessageRef.id, text: normalized, modelUsed: 'gemini-1.5-flash-latest' };
+    } catch (fallbackErr) {
+      logger.error("Fallback model error:", fallbackErr);
+      throw new HttpsError("internal", "Failed to generate chat response.");
     }
-);
+  }
+});
 
-exports.deleteSession = onCall(
-    async (request: any) => {
-      if (!request.auth) {
-        throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+export const ensureProfile = onCall<EnsureProfileReq, Promise<EnsureProfileRes>>(async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+    const { uid } = request.auth;
+    const defaults = request.data?.defaults || {};
+  
+    try {
+      const ref = db.doc(`aiProfiles/${uid}`);
+      const snap = await ref.get();
+  
+      if (!snap.exists) {
+        await ref.set({
+          profile: {
+            uid,
+            displayName: request.auth.token.name || "",
+            defaultMode: "Friend",
+            languageIntent: "auto",
+            tier: 'free',
+            createdAt: FieldValue.serverTimestamp(),
+            lastSeenAt: FieldValue.serverTimestamp(),
+            ...defaults,
+          },
+        });
+      } else {
+        const updates: Record<string, unknown> = {
+          "profile.lastSeenAt": FieldValue.serverTimestamp(),
+          ...Object.fromEntries(Object.entries(defaults).map(([k, v]) => [`profile.${k}`, v])),
+        };
+        if (!snap.data()?.profile?.tier) updates["profile.tier"] = 'free';
+        await ref.update(updates);
       }
-      const { uid } = request.auth;
-      const { sessionId } = request.data;
+      return { success: true };
+    } catch (e) {
+      logger.error("ensureProfile error", e);
+      throw new HttpsError("internal", "Failed to ensure profile.");
+    }
+  });
+  
+  export const createNewSession = onCall<CreateNewSessionReq, Promise<CreateNewSessionRes>>(async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+    const { uid } = request.auth;
+    const { title, mode, languageIntent } = request.data;
+  
+    const ref = db.collection(`aiProfiles/${uid}/sessions`).doc();
+    await ref.set({
+      title,
+      mode,
+      languageIntent,
+      isPremiumSnapshot: false,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { sessionId: ref.id };
+  });
+  
+  export const updateSession = onCall<UpdateSessionReq, Promise<UpdateSessionRes>>(async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+    const { uid } = request.auth;
+    const { sessionId, updates } = request.data;
+    await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({
+      ...updates,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { success: true };
+  });
+  
+  export const deleteSession = onCall<DeleteSessionReq, Promise<DeleteSessionRes>>(async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+    const { uid } = request.auth;
+    const { sessionId } = request.data;
+    if (!sessionId) throw new HttpsError("invalid-argument", "Missing required field: sessionId.");
+    await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).delete();
+    return { success: true };
+  });
 
-      if (!sessionId) {
-        throw new HttpsError("invalid-argument", "Missing required field: sessionId.");
-      }
+export const uploadImage = onCall<UploadImageReq, Promise<UploadImageRes>>(async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+    const { imageData, fileName } = request.data;
+    const uid = request.auth.uid;
+  
+    const bucket = getStorage().bucket();
+    const filePath = `user-uploads/${uid}/images/${fileName}`;
+    const file = bucket.file(filePath);
+  
+    const buffer = Buffer.from(imageData, 'base64');
+    await file.save(buffer, { contentType: 'image/png', resumable: false, metadata: { cacheControl: 'private, max-age=0' } });
+  
+    // Signed URL valid 7 days
+    const [url] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+    return { fileUrl: url };
+  });
+
+export const performWebSearch = onRequest(
+    { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
+    async (req, res) => {
+      const query = (req.method === 'GET' ? req.query.q : (req.body?.data?.query)) as string | undefined;
+      if (!query) { res.status(400).send({ error: "Missing 'query'." }); return; }
+  
+      const apiKey = process.env.GOOGLE_SEARCH_API_KEY!;
+      const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID!;
+      const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
+  
       try {
-        await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).delete();
-        return {success: true};
-      } catch (error) {
-        console.error("Error in deleteSession:", error);
-        throw new HttpsError("internal", "Failed to delete session.");
+        const response = await fetch(url);
+        const json = (await response.json()) as { items?: any[] };
+        if (!response.ok) { logger.error("CSE error", json); res.status(response.status).send({ error: "Search failed" }); return; }
+  
+        const results = (json.items || []).map((it: any) => ({ title: it.title, link: it.link, snippet: it.snippet }));
+        res.status(200).send({ data: { results } });
+      } catch (e) {
+        logger.error("performWebSearch error", e);
+        res.status(500).send({ error: "Unexpected error" });
       }
     }
-);
+  );
 
 exports.deleteAccountData = onCall(async (request: any) => {
 if (!request.auth) {
@@ -504,66 +520,3 @@ try {
   throw new HttpsError("internal", "Failed to delete account data.");
 }
 });
-
-exports.uploadImage = onCall(async (request: any) => {
-if (!request.auth) {
-  throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
-}
-const { imageData, fileName } = request.data;
-const uid = request.auth.uid;
-const bucket = getStorage().bucket();
-const buffer = Buffer.from(imageData, 'base64');
-const filePath = `user-uploads/${uid}/images/${fileName}`;
-const file = bucket.file(filePath);
-const stream = new Readable();
-stream.push(buffer);
-stream.push(null);
-
-return new Promise((resolve, reject) => {
-  stream.pipe(file.createWriteStream())
-    .on("error", (error) => reject(new HttpsError("internal", `File upload failed: ${error.message}`)))
-    .on("finish", async () => {
-      await file.makePublic();
-      resolve({ fileUrl: file.publicUrl() });
-    });
-});
-});
-
-
-exports.performWebSearch = onRequest(
-  { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
-  async (req: Request, res: Response) => {
-    const { query } = req.body.data;
-    if (!query) {
-      res.status(400).send({ error: "Missing 'query' in request body." });
-      return;
-    }
-    
-    const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-    const searchEngineId = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}`;
-
-    try {
-      const response = await fetch(url);
-      const responseData = await response.json();
-      
-      if (!response.ok) {
-        console.error("Google Search API Error:", responseData);
-        res.status(response.status).send({ error: "Failed to fetch search results." });
-        return;
-      }
-      
-      const results = responseData.items?.map((item: any) => ({
-        title: item.title,
-        link: item.link,
-        snippet: item.snippet,
-      })) || [];
-
-      res.status(200).send({ data: { results } });
-
-    } catch (error) {
-      console.error("Error in performWebSearch:", error);
-      res.status(500).send({ error: "An unexpected error occurred." });
-    }
-  }
-);
