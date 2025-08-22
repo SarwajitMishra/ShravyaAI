@@ -46,7 +46,7 @@ const cultural_calendar_1 = require("./cultural-calendar");
 // --- Firebase and Vertex AI Initialization ---
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
-const vertexAi = new vertexai_1.VertexAI({ project: process.env.GCLOUD_PROJECT, location: 'us-central1' });
+const vertexAi = new vertexai_1.VertexAI({ project: 'shravya-foundation', location: 'us-central1' });
 // Define safety settings for the generative model
 const safetySettings = [
     {
@@ -215,7 +215,7 @@ function normalizeTone(text) {
     return normalizedText;
 }
 /** ------------------ v2 Callables ------------------ */
-exports.appendUserMessageAndGetResponse = (0, https_1.onCall)(async (request) => {
+exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ serviceAccount: "firebase-adminsdk-7fsl1@shravya-foundation.iam.gserviceaccount.com" }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
     const { uid } = request.auth;
