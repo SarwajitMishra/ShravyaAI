@@ -421,7 +421,7 @@ exports.performWebSearch = (0, https_1.onRequest)({ secrets: ["GOOGLE_SEARCH_API
     const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
     try {
         const response = await fetch(url);
-        const json = (await response.json());
+        const json = await response.json();
         if (!response.ok) {
             logger.error("CSE error", json);
             res.status(response.status).send({ error: "Search failed" });

@@ -482,8 +482,12 @@ export const performWebSearch = onRequest(
   
       try {
         const response = await fetch(url);
-        const json = (await response.json()) as { items?: any[] };
-        if (!response.ok) { logger.error("CSE error", json); res.status(response.status).send({ error: "Search failed" }); return; }
+        const json = await response.json() as { items?: any[] };
+        if (!response.ok) { 
+          logger.error("CSE error", json); 
+          res.status(response.status).send({ error: "Search failed" }); 
+          return; 
+        }
   
         const results = (json.items || []).map((it: any) => ({ title: it.title, link: it.link, snippet: it.snippet }));
         res.status(200).send({ data: { results } });
