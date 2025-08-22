@@ -7,7 +7,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { Readable } from "stream";
 import { Request, Response } from "express";
-import { VertexAI, Part, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
+import { VertexAI, Part, HarmCategory, HarmBlockThreshold, Content } from '@google-cloud/vertexai';
 import * as crypto from 'crypto';
 import { getCurrentEvent } from './cultural-calendar';
 
@@ -196,17 +196,17 @@ function detectRomanized(text: string): boolean {
  * @returns The selected model name and the reason for the choice.
  */
 function chooseModel(ctx: TurnContext): { model: string; reason: string } {
-    let model = 'gemini-1.5-flash-latest';
+    let model = 'gemini-1.5-flash-001';
     let reason = 'default';
 
     if (ctx.hasImage) {
-        model = 'gemini-1.5-flash-latest'; // Vision is included in the base model
+        model = 'gemini-1.5-flash-001'; 
         reason = 'image';
     }
 
     if (ctx.needsReasoning || ctx.safetySensitive) {
         if (ctx.userTier === 'pro') {
-            model = 'gemini-1.5-pro-latest'; 
+            model = 'gemini-1.5-pro-001'; 
             reason = 'reasoning/safety';
         }
     }
@@ -320,6 +320,14 @@ export const appendUserMessageAndGetResponse = onCall<
   const history = histSnap.docs.map(d => d.data() as Message).reverse();
   const truncatedHistory = truncateContext(history);
 
+  // Sanitize history for the Vertex AI API
+  const contents: Content[] = truncatedHistory.map(msg => ({
+    role: msg.role,
+    parts: msg.parts || [{ text: msg.content || "" }]
+  }));
+  contents.push({ role: 'user', parts: message.parts || [{ text: firstPartText }] });
+
+
   // 5) Generate
   try {
     const generativeModel = vertexAi.preview.getGenerativeModel({
@@ -328,15 +336,6 @@ export const appendUserMessageAndGetResponse = onCall<
       safetySettings,
       generationConfig: { maxOutputTokens: 2048, temperature: 0.8, topP: 0.9 },
     });
-
-    const contents = [
-      ...truncatedHistory.map(m => {
-        if (m.parts && m.parts.length) return m;
-        // Normalize legacy messages to parts[]
-        return { role: m.role, parts: [{ text: m.content ?? '' }] } as Message;
-      }),
-      { role: 'user', parts: message.parts && message.parts.length ? message.parts : [{ text: promptText }] } as Message,
-    ];
 
     const resp = await generativeModel.generateContent({ contents });
     let text = "Sorry, I couldn't generate a response.";
@@ -358,12 +357,9 @@ export const appendUserMessageAndGetResponse = onCall<
     logger.error("Primary model error:", error);
     // Fallback to flash
     try {
-      const fallback = vertexAi.preview.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+      const fallback = vertexAi.preview.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
       const fallbackResp = await fallback.generateContent({
-        contents: [
-          ...truncatedHistory.map(m => (m.parts?.length ? m : { role: m.role, parts: [{ text: m.content ?? '' }] })),
-          { role: 'user', parts: message.parts?.length ? message.parts : [{ text: promptText }] } as Message,
-        ],
+        contents
       });
       const f0 = fallbackResp.response?.candidates?.[0]?.content?.parts?.[0];
       const text = (f0 && 'text' in f0 && f0.text) ? f0.text : "No response";
@@ -375,7 +371,7 @@ export const appendUserMessageAndGetResponse = onCall<
         parts: [{ text: normalized }],
         createdAt: FieldValue.serverTimestamp(),
       });
-      return { messageId: modelMessageRef.id, text: normalized, modelUsed: 'gemini-1.5-flash-latest' };
+      return { messageId: modelMessageRef.id, text: normalized, modelUsed: 'gemini-1.5-flash-001' };
     } catch (fallbackErr) {
       logger.error("Fallback model error:", fallbackErr);
       throw new HttpsError("internal", "Failed to generate chat response.");
