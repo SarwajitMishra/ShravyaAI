@@ -66,7 +66,7 @@ interface UploadImageRes { fileUrl: string }
 // --- Firebase and Vertex AI Initialization ---
 initializeApp();
 const db = getFirestore();
-const vertexAi = new VertexAI({ project: process.env.GCLOUD_PROJECT, location: 'us-central1' });
+const vertexAi = new VertexAI({ project: 'shravya-foundation', location: 'us-central1' });
 
 // Define safety settings for the generative model
 const safetySettings = [
@@ -260,7 +260,7 @@ function normalizeTone(text: string): string {
 export const appendUserMessageAndGetResponse = onCall<
   AppendUserMessageAndGetResponseReq,
   Promise<AppendUserMessageAndGetResponseRes>
->(async (request: CallableRequest<AppendUserMessageAndGetResponseReq>) => {
+>({ serviceAccount: "firebase-adminsdk-7fsl1@shravya-foundation.iam.gserviceaccount.com" }, async (request: CallableRequest<AppendUserMessageAndGetResponseReq>) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
 
   const { uid } = request.auth;
