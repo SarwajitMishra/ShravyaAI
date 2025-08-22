@@ -50,3 +50,12 @@ build/
 out/
 .turbo/
 .vercel/
+.firebase/
+.next/
+functions/.next/
+dist/
+build/
+out/
+.turbo/
+.vercel/
+node_modules/
