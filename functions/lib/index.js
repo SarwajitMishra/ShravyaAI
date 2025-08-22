@@ -33,294 +33,94 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.performWebSearch = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = void 0;
+exports.deleteAccountData = exports.performWebSearch = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const auth_1 = require("firebase-admin/auth");
 const storage_1 = require("firebase-admin/storage");
-const vertexai_1 = require("@google-cloud/vertexai");
+const generative_ai_1 = require("@google/generative-ai");
 const crypto = __importStar(require("crypto"));
-const cultural_calendar_1 = require("./cultural-calendar");
-// --- Firebase and Vertex AI Initialization ---
+// --- Firebase and Gemini API Initialization ---
 (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
-const vertexAi = new vertexai_1.VertexAI({ project: 'shravya-foundation', location: 'us-central1' });
-// Define safety settings for the generative model
+const geminiApiKey = process.env.GEMINI_API_KEY;
+// Initialize with a placeholder if the key is missing during analysis
+let genAI;
+if (geminiApiKey) {
+    genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
+}
+else {
+    logger.warn("GEMINI_API_KEY not set, functions requiring it will fail at runtime.");
+    // Use a temporary key to allow initialization during deployment analysis
+    genAI = new generative_ai_1.GoogleGenerativeAI("TEMP_API_KEY_FOR_INIT");
+}
 const safetySettings = [
-    {
-        category: vertexai_1.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: vertexai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    },
-    {
-        category: vertexai_1.HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: vertexai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    },
-    {
-        category: vertexai_1.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: vertexai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    },
-    {
-        category: vertexai_1.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: vertexai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    },
-    {
-        category: vertexai_1.HarmCategory.HARM_CATEGORY_UNSPECIFIED,
-        threshold: vertexai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH,
-    }
+    { category: generative_ai_1.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
+    { category: generative_ai_1.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
+    { category: generative_ai_1.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
+    { category: generative_ai_1.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
-// --- Core Logic Functions ---
-/**
- * Creates a hash for a given string.
- * @param input The string to hash.
- * @returns The MD5 hash of the string.
- */
-function createHash(input) {
-    return crypto.createHash('md5').update(input).digest('hex');
+// --- Core Logic Functions (Simplified for Gemini Dev API) ---
+function createHash(input) { return crypto.createHash('md5').update(input).digest('hex'); }
+function detectRomanized(text) { const words = ['kya', 'hai', 'aur', 'kaise', 'ho']; return words.some(w => text.toLowerCase().includes(w)); }
+function getSystemPrompt(persona) {
+    const prompts = { Friend: "You are a friendly companion.", Teacher: "You are an expert educator.", Pro: "You are a professional expert.", Storyteller: "You are a master storyteller.", Spiritual: "You are a wise spiritual guide." };
+    return prompts[persona] || prompts.Friend;
 }
-async function getCache(key) {
-    const docRef = db.collection('cache').doc(key);
-    const snap = await docRef.get();
-    if (!snap.exists)
-        return null;
-    const data = snap.data();
-    if (!data)
-        return null;
-    let createdMs = 0;
-    const created = data.createdAt;
-    if (created instanceof firestore_1.Timestamp)
-        createdMs = created.toMillis();
-    else if (created instanceof Date)
-        createdMs = created.getTime();
-    else if (typeof created === 'string')
-        createdMs = Date.parse(created);
-    // 6 hours
-    if (createdMs && (Date.now() - createdMs) < 6 * 60 * 60 * 1000) {
-        return data.response;
-    }
-    return null;
-}
-async function setCache(key, response) {
-    await db.collection('cache').doc(key).set({
-        response,
-        createdAt: firestore_1.FieldValue.serverTimestamp(),
-    });
-}
-/**
- * A simple heuristic to detect if the prompt requires complex reasoning.
- * @param prompt The user's text prompt.
- * @returns True if the prompt suggests a need for reasoning.
- */
 function detectComplexity(prompt) {
     const keywords = ['explain', 'why', 'how to', 'what if', 'compare', 'analyze', 'solve'];
     return keywords.some(k => prompt.toLowerCase().includes(k));
 }
-/**
- * Truncates context, handling both old and new message formats.
- * @param messages The array of messages.
- * @param maxChars Max characters to allow.
- * @returns The truncated array of messages.
- */
-function truncateContext(messages, maxChars = 12000) {
-    let totalChars = 0;
-    const truncatedMessages = [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-        const message = messages[i];
-        let content = '';
-        // Handle new format (parts array)
-        if (Array.isArray(message.parts) && message.parts.length > 0 && message.parts[0].text) {
-            content = message.parts[0].text;
-            // Handle old format (content string)
-        }
-        else if (typeof message.content === 'string') {
-            content = message.content;
-        }
-        const messageChars = content.length;
-        if (totalChars + messageChars <= maxChars) {
-            truncatedMessages.unshift(message);
-            totalChars += messageChars;
-        }
-        else {
-            break;
-        }
-    }
-    return truncatedMessages;
-}
-/**
- * A simple heuristic to detect romanized Hinglish.
- * @param text The text to analyze.
- * @returns True if the text is likely Hinglish.
- */
-function detectRomanized(text) {
-    // This is a very basic detection, a more robust solution would use a language detection library
-    const hinglishWords = ['kya', 'hai', 'aur', 'kaise', 'ho', 'mein', 'nahin'];
-    const words = text.toLowerCase().split(' ');
-    const hinglishWordCount = words.filter(word => hinglishWords.includes(word)).length;
-    return hinglishWordCount > 0;
-}
-/**
- * Chooses the best LLM based on the turn's context.
- * @param ctx The context of the current turn.
- * @returns The selected model name and the reason for the choice.
- */
 function chooseModel(ctx) {
-    let model = 'gemini-1.5-flash-001';
-    let reason = 'default';
-    if (ctx.hasImage) {
-        model = 'gemini-1.5-flash-001';
-        reason = 'image';
-    }
     if (ctx.needsReasoning || ctx.safetySensitive) {
-        if (ctx.userTier === 'pro') {
-            model = 'gemini-1.5-pro-001';
-            reason = 'reasoning/safety';
-        }
+        if (ctx.userTier === 'pro')
+            return { model: 'gemini-1.5-pro-latest', reason: 'reasoning/safety' };
     }
-    return { model, reason };
+    return { model: 'gemini-1.5-flash-latest', reason: 'default' };
 }
-/**
- * Generates a compact system prompt based on the persona.
- * @param persona The selected persona for the AI.
- * @returns A string representing the system prompt.
- */
-function getSystemPrompt(persona) {
-    const prompts = {
-        Friend: "You are a friendly, warm, and encouraging companion. Keep it casual and supportive. Use Hinglish where appropriate.",
-        Teacher: "You are an expert educator. Explain concepts clearly, concisely, and patiently. Break down complex topics.",
-        Spiritual: "You are a wise spiritual guide. Offer calming, insightful, and profound wisdom. Be gentle and contemplative.",
-        Pro: "You are a professional, direct, and highly knowledgeable expert. Be precise, use formal language, and get straight to the point.",
-        Storyteller: "You are a master storyteller. Weave engaging, imaginative, and vivid narratives. Use rich descriptions."
-    };
-    return prompts[persona] || prompts.Friend;
-}
-/**
- * A simple tone normalizer to ensure responses are warm and polite.
- * @param text The text to normalize.
- * @returns The normalized text.
- */
-function normalizeTone(text) {
-    // This is a very basic implementation. A more robust solution would use a sentiment analysis library.
-    const politePhrases = ['please', 'thank you', 'could you', 'would you'];
-    const warmWords = ['happy', 'glad', 'wonderful', 'excellent'];
-    let normalizedText = text;
-    // Add a polite phrase if one is not present
-    if (!politePhrases.some(phrase => normalizedText.toLowerCase().includes(phrase))) {
-        normalizedText = "I would be happy to help. " + normalizedText;
+// --- Main Chat Function (Reverted to Gemini Dev API) ---
+exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, // Granting access to the secret
+async (request) => {
+    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "TEMP_API_KEY_FOR_INIT") {
+        logger.error("FATAL: GEMINI_API_KEY secret is not configured correctly for runtime.");
+        throw new https_1.HttpsError("internal", "The server is missing a required API key.");
     }
-    // Add a warm word if one is not present
-    if (!warmWords.some(word => normalizedText.toLowerCase().includes(word))) {
-        normalizedText = normalizedText + " I hope you have a wonderful day!";
-    }
-    return normalizedText;
-}
-/** ------------------ v2 Callables ------------------ */
-exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ serviceAccount: "firebase-adminsdk-7fsl1@shravya-foundation.iam.gserviceaccount.com" }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
     const { uid } = request.auth;
-    const { sessionId, message, context } = request.data || {};
-    if (!sessionId || !message || !context) {
-        throw new https_1.HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
-    }
-    // Derive plain text from message (new parts[] or legacy content)
-    const firstPartText = Array.isArray(message.parts) && message.parts[0] && 'text' in message.parts[0]
-        ? message.parts[0].text ?? ''
-        : (message.content ?? '');
-    // 1) Append user message
-    const userMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-    await userMessageRef.set({
-        ...message,
-        createdAt: firestore_1.FieldValue.serverTimestamp(),
-    });
+    const { sessionId, message, context } = request.data;
+    const firstPartText = (Array.isArray(message.parts) && message.parts[0]?.text) || (message.content ?? '');
+    await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc().set({ role: 'user', content: firstPartText, createdAt: firestore_1.FieldValue.serverTimestamp() });
     await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
-    // 2) Cache
-    const promptText = (firstPartText || '').trim();
-    const cacheKey = createHash(`${context.persona}|${context.lang}|${promptText}`);
-    const cached = await getCache(cacheKey);
-    if (cached) {
-        const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-        await modelMessageRef.set({
-            role: 'model',
-            parts: [{ text: cached }],
-            createdAt: firestore_1.FieldValue.serverTimestamp(),
-        });
-        return { messageId: modelMessageRef.id, text: cached, modelUsed: 'cache' };
-    }
-    // 3) Context + model choice
-    const turnContext = {
-        ...context,
-        needsReasoning: detectComplexity(promptText),
-    };
-    const { model, reason } = chooseModel(turnContext);
-    logger.info(`Selected model: ${model} for ${uid} due to: ${reason}`);
-    let systemPrompt = getSystemPrompt(turnContext.persona);
+    const promptText = firstPartText.trim();
+    const turnContext = { ...context, needsReasoning: detectComplexity(promptText) };
+    const { model } = chooseModel(turnContext);
+    let systemInstruction = getSystemPrompt(turnContext.persona);
     if (detectRomanized(promptText))
-        systemPrompt += " Please respond in Hinglish.";
-    const currentEvent = (0, cultural_calendar_1.getCurrentEvent)(turnContext.locale || 'en-IN');
-    if (currentEvent)
-        systemPrompt += ` Also, please acknowledge the current festival of ${currentEvent}.`;
-    // 4) History
-    const histSnap = await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`)
-        .orderBy('createdAt', 'desc')
-        .limit(20)
-        .get();
+        systemInstruction += " Please respond in Hinglish.";
+    const histSnap = await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).orderBy('createdAt', 'desc').limit(20).get();
     const history = histSnap.docs.map(d => d.data()).reverse();
-    const truncatedHistory = truncateContext(history);
-    // Sanitize history for the Vertex AI API
-    const contents = truncatedHistory.map(msg => ({
-        role: msg.role,
+    const sanitizedHistory = history.map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
         parts: msg.parts || [{ text: msg.content || "" }]
     }));
-    contents.push({ role: 'user', parts: message.parts || [{ text: firstPartText }] });
-    // 5) Generate
     try {
-        const generativeModel = vertexAi.preview.getGenerativeModel({
-            model,
-            systemInstruction: { role: 'system', parts: [{ text: systemPrompt }] },
-            safetySettings,
-            generationConfig: { maxOutputTokens: 2048, temperature: 0.8, topP: 0.9 },
-        });
-        const resp = await generativeModel.generateContent({ contents });
-        let text = "Sorry, I couldn't generate a response.";
-        const cand0 = resp.response?.candidates?.[0]?.content?.parts?.[0];
-        if (cand0 && 'text' in cand0 && cand0.text)
-            text = cand0.text;
-        const normalized = normalizeTone(text);
-        await setCache(cacheKey, normalized);
+        const generativeModel = genAI.getGenerativeModel({ model, safetySettings, systemInstruction });
+        const chat = generativeModel.startChat({ history: sanitizedHistory });
+        const result = await chat.sendMessage(promptText);
+        const text = result.response.text();
         const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-        await modelMessageRef.set({
-            role: 'model',
-            parts: [{ text: normalized }],
-            createdAt: firestore_1.FieldValue.serverTimestamp(),
-        });
-        return { messageId: modelMessageRef.id, text: normalized, modelUsed: model };
+        await modelMessageRef.set({ role: 'assistant', content: text, createdAt: firestore_1.FieldValue.serverTimestamp() });
+        return { messageId: modelMessageRef.id, text, modelUsed: model };
     }
     catch (error) {
-        logger.error("Primary model error:", error);
-        // Fallback to flash
-        try {
-            const fallback = vertexAi.preview.getGenerativeModel({ model: 'gemini-1.5-flash-001' });
-            const fallbackResp = await fallback.generateContent({
-                contents
-            });
-            const f0 = fallbackResp.response?.candidates?.[0]?.content?.parts?.[0];
-            const text = (f0 && 'text' in f0 && f0.text) ? f0.text : "No response";
-            const normalized = normalizeTone(text);
-            const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-            await modelMessageRef.set({
-                role: 'model',
-                parts: [{ text: normalized }],
-                createdAt: firestore_1.FieldValue.serverTimestamp(),
-            });
-            return { messageId: modelMessageRef.id, text: normalized, modelUsed: 'gemini-1.5-flash-001' };
-        }
-        catch (fallbackErr) {
-            logger.error("Fallback model error:", fallbackErr);
-            throw new https_1.HttpsError("internal", "Failed to generate chat response.");
-        }
+        logger.error("Error generating chat response:", error);
+        throw new https_1.HttpsError("internal", "Failed to generate chat response.");
     }
 });
+// --- Other Functions (Restored with full implementation) ---
 exports.ensureProfile = (0, https_1.onCall)(async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
@@ -406,7 +206,6 @@ exports.uploadImage = (0, https_1.onCall)(async (request) => {
     const file = bucket.file(filePath);
     const buffer = Buffer.from(imageData, 'base64');
     await file.save(buffer, { contentType: 'image/png', resumable: false, metadata: { cacheControl: 'private, max-age=0' } });
-    // Signed URL valid 7 days
     const [url] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
     return { fileUrl: url };
 });
