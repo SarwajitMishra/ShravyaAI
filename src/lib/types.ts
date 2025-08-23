@@ -53,6 +53,7 @@ export type AiMessage = {
   romanizedHint?: string;
   nativeScriptLine?: string;
   imageUrls?: string[];
+  documentUrls?: string[];
   audio?: string;
   mode: Mode;
   languageIntent: LangIntent;
@@ -61,6 +62,7 @@ export type AiMessage = {
   displayContent?: string;
   isRoman?: boolean;
   isError?: boolean;
+  isPending?: boolean;
 };
 
 

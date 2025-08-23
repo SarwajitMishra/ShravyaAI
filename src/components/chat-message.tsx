@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Copy, RefreshCw, Languages, User, AlertTriangle, Check } from "lucide-react";
+import { Copy, RefreshCw, Languages, User, AlertTriangle, Check, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DiyaIcon } from "@/components/icons";
 import {
@@ -93,7 +93,8 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
           isUser
             ? "bg-secondary text-secondary-foreground rounded-br-none"
             : "bg-transparent text-foreground rounded-tl-none",
-          message.isError && "bg-destructive/20 border border-destructive"
+          message.isError && "bg-destructive/20 border border-destructive",
+          message.isPending && "opacity-50"
         )}
       >
         {message.isError && (
@@ -108,9 +109,16 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
             {message.imageUrls.map((url, index) => (
               <Dialog key={index}>
                 <DialogTrigger asChild>
-                  <div className="relative aspect-square rounded-md overflow-hidden cursor-pointer">
-                    <Image src={url} alt={`Uploaded image ${index + 1}`} layout="fill" className="object-cover" />
-                  </div>
+                <div className="relative w-40 md:w-56 aspect-[4/3] rounded-md overflow-hidden cursor-pointer bg-muted">
+  <Image
+    src={url}
+    alt={`Uploaded image ${index + 1}`}
+    fill
+    sizes="(max-width: 768px) 160px, 224px"
+    className="object-cover"
+  />
+</div>
+       
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl">
                   <Image src={url} alt={`Uploaded image ${index + 1}`} width={800} height={600} className="object-contain" />
@@ -119,6 +127,27 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
             ))}
           </div>
         )}
+        {message.documentUrls && message.documentUrls.length > 0 && (
+  <div className="mt-2 space-y-2">
+    {message.documentUrls.map((url, index) => {
+      // This logic creates a clean, readable filename from the long URL
+      const decodedUrl = decodeURIComponent(url);
+      const fileName = decodedUrl.split('/').pop()?.split('?')[0].split('%2F').pop() || 'Document';
+      return (
+        <a 
+          key={index} 
+          href={url} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="flex items-center gap-2 p-2 rounded-md bg-muted hover:bg-muted/80 transition-colors no-underline"
+        >
+          <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+          <span className="truncate text-sm font-medium text-foreground">{fileName}</span>
+        </a>
+      );
+    })}
+  </div>
+)}
 
         {isUser ? (
           <p className="m-0 whitespace-pre-wrap">{message.content}</p>

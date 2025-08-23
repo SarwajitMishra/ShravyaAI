@@ -22,9 +22,6 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "Shravya AI",
   description: "Your personal AI companion for mindful conversations.",
-  icons: {
-    icon: "icon.png",
-  },
 };
 
 export const viewport: Viewport = {

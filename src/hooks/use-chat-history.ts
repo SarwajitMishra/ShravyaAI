@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc } from "firebase/firestore";
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc, addDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import type { Persona, AiSession, AiMessage, UserProfile } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
@@ -90,8 +90,8 @@ export function useChatHistory() {
     };
     const q = query(collection(db, `aiProfiles/${user.uid}/sessions/${activeSessionId}/messages`), orderBy("createdAt", "asc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const messages = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as AiMessage);
-      setMessages(messages);
+        const newMessages = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as AiMessage);
+        setMessages(newMessages);
     });
     return unsubscribe;
   }, [user, loading, activeSessionId]);
@@ -106,36 +106,71 @@ export function useChatHistory() {
     }
   }, [sessions, activePersona, startNewConversation]);
 
-  const sendMessage = useCallback(async (content: string, persona: Persona, imageUrls?: string[]) => {
+  const sendMessage = useCallback(async (content: string, persona: Persona, imageUrls: string[] = [], documentUrls: string[] = []) => {
     if (!user || !activeSessionId || !userProfile) return;
     const sessionId = activeSessionId;
-    setIsPending(true);
-    try {
-      const isFirstMessage = messages.length === 0;
 
-      if (isFirstMessage && content) {
-        await updateSession({ sessionId, updates: { title: content.substring(0, 20) } });
-      }
-
-      const userMessage = {
+    const optimisticMessage: AiMessage = {
+        id: `temp-${Date.now()}`,
         role: 'user',
-        parts: [{ text: content }],
-      };
+        content,
+        imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+        documentUrls: documentUrls.length > 0 ? documentUrls : undefined,
+        mode: persona,
+        languageIntent: 'auto',
+        createdAt: Date.now(),
+        showScript: false,
+        isPending: true,
+    };
 
-      const context = {
-        persona,
-        lang: 'auto',
-        hasImage: !!imageUrls?.length,
-        safetySensitive: false, // Replace with actual detection logic
-        userTier: userProfile.tier || 'free',
-      };
+    setMessages(prevMessages => [...prevMessages, optimisticMessage]);
+    
+    setIsPending(true);
 
-      await appendUserMessageAndGetResponse({ sessionId, message: userMessage, context });
+    try {
+        const isFirstMessage = messages.length === 0;
 
+        if (isFirstMessage && content) {
+            await updateSession({ sessionId, updates: { title: content.substring(0, 20) } });
+        }
+        
+        await appendUserMessageAndGetResponse({ 
+            sessionId,
+            message: {
+                role: 'user',
+                parts: [{ text: content }],
+                content: content,
+                imageUrls: imageUrls,
+                documentUrls: documentUrls,
+            },
+            context: {
+                persona,
+                lang: 'auto',
+                hasImage: !!imageUrls?.length,
+                safetySensitive: false,
+                userTier: userProfile.tier || 'free',
+                locale: navigator.language || 'en-US'
+            }
+        });
+
+    } catch (error) {
+        console.error("Error sending message:", error);
+        const errorMessage: Omit<AiMessage, 'id'> = {
+            role: 'assistant',
+            content: "Sorry, something went wrong.",
+            isError: true,
+            mode: persona,
+            languageIntent: 'auto',
+            createdAt: Date.now(),
+            showScript: false
+        };
+        const messagesCol = collection(db, `aiProfiles/${user.uid}/sessions/${sessionId}/messages`);
+        await addDoc(messagesCol, errorMessage);
     } finally {
-      setIsPending(false);
+        setIsPending(false);
     }
-  }, [user, activeSessionId, messages, userProfile]);
+}, [user, activeSessionId, messages, activePersona, userProfile]);
+
 
   const regenerateLastMessage = useCallback(async () => {
     if (!user || !activeSessionId || messages.length === 0 || !userProfile) return;
@@ -143,25 +178,45 @@ export function useChatHistory() {
     const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0];
     if (!lastUserMessage) return;
 
-
     setIsPending(true);
     try {
-        const context = {
-            persona: activePersona,
-            lang: 'auto',
-            hasImage: false,
-            safetySensitive: false,
-            userTier: userProfile.tier || 'free',
-          };
-      
-          await appendUserMessageAndGetResponse({
+        const historyForAi = messages.slice(0, -1).map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        }));
+
+        const result: any = await appendUserMessageAndGetResponse({ 
             sessionId: activeSessionId,
-            message: { role: 'user', parts: [{ text: lastUserMessage.content }] },
-            context,
-          });
+            message: {
+                role: 'user',
+                parts: [{ text: lastUserMessage.content }],
+                content: lastUserMessage.content,
+            },
+            context: {
+                persona: activePersona,
+                lang: 'auto',
+                hasImage: false,
+                safetySensitive: false,
+                userTier: userProfile.tier || 'free',
+                locale: navigator.language || 'en-US'
+            }
+        });
+
+        const lastMessageId = messages[messages.length - 1].id;
+        const messageRef = doc(db, `aiProfiles/${user.uid}/sessions/${activeSessionId}/messages`, lastMessageId);
+        await updateDoc(messageRef, {
+            content: result.data.text,
+            isError: false,
+        });
 
     } catch (error) {
       console.error("Error regenerating message:", error);
+      const lastMessageId = messages[messages.length - 1].id;
+      const messageRef = doc(db, `aiProfiles/${user.uid}/sessions/${activeSessionId}/messages`, lastMessageId);
+      await updateDoc(messageRef, {
+          content: "Sorry, I was unable to generate a new response.",
+          isError: true,
+      });
     } finally {
       setIsPending(false);
     }

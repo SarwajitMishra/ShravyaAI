@@ -5,6 +5,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
+import { CameraCapture } from "@/components/camera-capture";
+import { ScreenshotCapture } from "@/components/screenshot-capture";
+import { FileUploader } from '@/components/file-uploader';
+
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -100,6 +105,17 @@ export function ChatClient() {
   const isGuest = user?.isAnonymous === true;
   const { toast } = useToast();
   const router = useRouter();
+  
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [screenshotOpen, setScreenshotOpen] = useState(false);
+  // Add these state variables
+  const [stagedDocumentUrls, setStagedDocumentUrls] = useState<string[]>([]);
+  const [fileUploaderOpen, setFileUploaderOpen] = useState(false);
+  // Add this line below the uploadImage function definition
+  const uploadFile = httpsCallable(functions, 'uploadFile');
+
+
+
 
   const {
     conversations,
@@ -180,14 +196,44 @@ export function ChatClient() {
     localStorage.setItem('guestPromptDismissals', newDismissals.toString());
     setGuestPromptOpen(false);
   };
+
+  // Add this new handler function inside the ChatClient component
+
+const handleFileUpload = async (files: File[]) => {
+  files.forEach(async (file) => {
+    const fileId = `${file.name}-${Date.now()}`;
+    const newUploadingFile: UploadingFile = { id: fileId, name: file.name, progress: 0 };
+    setUploadingFiles((prev) => [...prev, newUploadingFile]);
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = async () => {
+      const base64FileData = reader.result?.toString().split(',')[1];
+      if (base64FileData) {
+        try {
+          const result: any = await uploadFile({ fileData: base64FileData, fileName: file.name });
+          const fileUrl = result.data.fileUrl;
+          setStagedDocumentUrls(prev => [...prev, fileUrl]);
+        } catch (error) {
+          toast({ variant: 'destructive', title: `Upload Failed for ${file.name}`, description: 'Could not upload your file.' });
+        } finally {
+          setUploadingFiles(prev => prev.filter(f => f.id !== fileId));
+          }
+        }
+     };
+    });
+  };
+
   
   const handleSendMessage = () => {
     const content = input.trim();
-    if (!content && stagedImageUrls.length === 0) return;
-    
-    sendMessage(content, activePersona, stagedImageUrls);
+    if (!content && stagedImageUrls.length === 0 && stagedDocumentUrls.length === 0) return;
+
+    sendMessage(content, activePersona, stagedImageUrls, stagedDocumentUrls);
+
     setInput("");
     setStagedImageUrls([]);
+    setStagedDocumentUrls([]); // Add this line
   };
 
   const handleRemoveStagedImage = (index: number) => {
@@ -294,6 +340,27 @@ export function ChatClient() {
     }
   };
 
+const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
+  const fileName = `${type}-${Date.now()}.png`;
+  const fileId = `${fileName}-${Date.now()}`;
+  const newUploadingFile: UploadingFile = { id: fileId, name: fileName, progress: 0 };
+  setUploadingFiles(prev => [...prev, newUploadingFile]);
+
+  try {
+      const base64ImageData = dataUrl.split(',')[1];
+      if (base64ImageData) {
+          const result: any = await uploadImage({ imageData: base64ImageData, fileName });
+          const imageUrl = result.data.fileUrl;
+          setStagedImageUrls(prev => [...prev, imageUrl]);
+      }
+  } catch (error) {
+      toast({ variant: 'destructive', title: `Upload Failed`, description: `Could not upload the ${type}.` });
+  } finally {
+      setUploadingFiles(prev => prev.filter(f => f.id !== fileId));
+  }
+};
+
+
   const [greeting, setGreeting] = useState("");
   const [userLocale, setUserLocale] = useState("en-US");
 
@@ -378,6 +445,16 @@ export function ChatClient() {
 
   return (
     <div className="flex h-screen w-full bg-background">
+
+        <CameraCapture open={cameraOpen} onOpenChange={setCameraOpen} onCapture={(dataUrl) => handleCapture(dataUrl, 'photo')} />
+        <ScreenshotCapture 
+            open={screenshotOpen} 
+            onOpenChange={setScreenshotOpen} 
+            onCapture={(dataUrl) => handleCapture(dataUrl, 'screenshot')}
+            onUploadRequest={handleImageUpload} // Add this line
+        />
+        <FileUploader open={fileUploaderOpen} onOpenChange={setFileUploaderOpen} onUpload={handleFileUpload} />
+
       <input
         type="file"
         ref={imageInputRef}
@@ -671,7 +748,7 @@ export function ChatClient() {
         <footer className="p-2 md:p-4 bg-background sticky bottom-0 z-10">
             <div className="max-w-4xl mx-auto">
                 <form onSubmit={handleSubmit} className="relative">
-                    {(stagedImageUrls.length > 0 || uploadingFiles.length > 0) && (
+                    {(stagedImageUrls.length > 0 || stagedDocumentUrls.length > 0 || uploadingFiles.length > 0) && (
                       <div className="p-2 bg-card border border-b-0 rounded-t-2xl flex gap-2 flex-wrap">
                         {uploadingFiles.map(file => (
                           <div key={file.id} className="w-20 h-20 rounded-md bg-muted flex items-center justify-center">
@@ -680,7 +757,7 @@ export function ChatClient() {
                         ))}
                         {stagedImageUrls.map((url, index) => (
                           <div key={url} className="relative w-20 h-20 rounded-md">
-                            <Image src={url} alt="Staged image" layout="fill" className="object-cover rounded-md" />
+                            <Image src={url} alt="Staged image" fill sizes="100vw" className="object-cover rounded-md" />
                             <Button
                               type="button"
                               variant="ghost"
@@ -692,6 +769,24 @@ export function ChatClient() {
                             </Button>
                           </div>
                         ))}
+                        {stagedDocumentUrls.map((url, index) => {
+      const fileName = decodeURIComponent(url).split('/').pop()?.split('?')[0].split('%2F').pop() || 'Document';
+      return (
+        <div key={url} className="relative w-20 h-20 rounded-md bg-muted p-2 flex flex-col items-center justify-center">
+          <FileText className="h-8 w-8 text-muted-foreground" />
+          <p className="text-xs text-center truncate w-full mt-1">{fileName}</p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/80"
+            onClick={() => setStagedDocumentUrls(prev => prev.filter((_, i) => i !== index))}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      );
+    })}
                       </div>
                     )}
                     <Textarea
@@ -729,16 +824,16 @@ export function ChatClient() {
                                         <ImageIcon className="mr-2 h-4 w-4" />
                                         Upload Image
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleDocumentUpload}>
+                                    <DropdownMenuItem onClick={() => setFileUploaderOpen(true)}>
                                         <FileText className="mr-2 h-4 w-4" />
                                         Upload Document
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleComingSoon}>
-                                        <ScreenShare className="mr-2 h-4 w-4" />
+                                    <DropdownMenuItem onClick={() => setScreenshotOpen(true)}>
+                                      <ScreenShare className="mr-2 h-4 w-4" />
                                         Take Screenshot
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={handleComingSoon}>
-                                        <Camera className="mr-2 h-4 w-4" />
+                                    <DropdownMenuItem onClick={() => setCameraOpen(true)}>
+                                      <Camera className="mr-2 h-4 w-4" />
                                         Take a Picture
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>

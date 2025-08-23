@@ -10,6 +10,8 @@ import { Request, Response } from "express";
 import { GoogleGenerativeAI, Part, Content, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import * as crypto from 'crypto';
 import { getCurrentEvent } from './cultural-calendar';
+import * as http from 'http';
+import https from 'https';
 
 // --- Types ---
 type Persona = 'Friend' | 'Teacher' | 'Spiritual' | 'Pro' | 'Storyteller';
@@ -31,6 +33,8 @@ interface Message {
     parts: Part[];
     createdAt?: string | FieldValue;
     content?: string; // For legacy messages
+    imageUrls?: string[];
+    documentUrls?: string[];
 }
 
 // --- Request/Response Shapes ---
@@ -54,6 +58,8 @@ interface DeleteSessionReq { sessionId: string }
 interface DeleteSessionRes { success: boolean }
 interface UploadImageReq { imageData: string; fileName: string }
 interface UploadImageRes { fileUrl: string }
+interface UploadFileReq { fileData: string; fileName: string }
+interface UploadFileRes { fileUrl: string }
 
 // --- Firebase and Gemini API Initialization ---
 initializeApp();
@@ -90,6 +96,7 @@ function detectComplexity(prompt: string): boolean {
     return keywords.some(k => prompt.toLowerCase().includes(k));
 }
 function chooseModel(ctx: TurnContext): { model: string; reason: string } {
+    if (ctx.hasImage) return { model: 'gemini-1.5-flash-latest', reason: 'image' };
     if (ctx.needsReasoning || ctx.safetySensitive) {
         if (ctx.userTier === 'pro') return { model: 'gemini-1.5-pro-latest', reason: 'reasoning/safety' };
     }
@@ -99,53 +106,221 @@ function chooseModel(ctx: TurnContext): { model: string; reason: string } {
 
 // --- Main Chat Function (Reverted to Gemini Dev API) ---
 export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetResponseReq, Promise<AppendUserMessageAndGetResponseRes>>(
-    { secrets: ["GEMINI_API_KEY"] }, // Granting access to the secret
-    async (request) => {
-        if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "TEMP_API_KEY_FOR_INIT") {
-            logger.error("FATAL: GEMINI_API_KEY secret is not configured correctly for runtime.");
-            throw new HttpsError("internal", "The server is missing a required API key.");
+    { secrets: ["GEMINI_API_KEY"] },
+    async (request: any) => {
+      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "TEMP_API_KEY_FOR_INIT") {
+        logger.error("FATAL: GEMINI_API_KEY secret is not configured correctly for runtime.");
+        throw new HttpsError("internal", "The server is missing a required API key.");
+      }
+      if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+  
+      const { uid } = request.auth;
+      const { sessionId, message, context } = request.data || {};
+  
+      if (!sessionId || !message) {
+        throw new HttpsError("invalid-argument", "Missing required fields: sessionId or message.");
+      }
+  
+      // --- 0) Upsert session (avoid NOT_FOUND on update) ---
+      const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+      const nowIso = new Date().toISOString();
+      // Title fallback for brand new sessions (first 24 chars of prompt)
+      const firstPartText =
+        (Array.isArray(message.parts) && message.parts[0]?.text) ||
+        (typeof message.content === 'string' ? message.content : '') ||
+        '';
+      const fallbackTitle = `[${context?.persona ?? 'Friend'}] ${firstPartText.slice(0, 24)}${firstPartText.length > 24 ? '…' : ''}`;
+  
+      await sessionRef.set(
+        {
+          // do not overwrite existing fields; just ensure doc exists
+          title: fallbackTitle,
+          mode: context?.persona ?? 'Friend',
+          languageIntent: context?.lang ?? 'auto',
+          isPremiumSnapshot: false,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
+  
+      // --- 1) Persist the user turn (write both timestamps for stable ordering) ---
+      const userMsgRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+      await userMsgRef.set({
+        role: 'user',
+        content: firstPartText,
+        imageUrls: Array.isArray(message.imageUrls) ? message.imageUrls : [],
+        documentUrls: Array.isArray(message.documentUrls) ? message.documentUrls : [], // Add this line to save document URLs
+        createdAt: FieldValue.serverTimestamp(),
+        createdAtMs: Date.now(),
+      });
+      await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
+  
+      const promptText = firstPartText.trim();
+      const turnContext = { 
+        ...(context || {}), 
+        needsReasoning: detectComplexity(promptText),
+        hasDocument: Array.isArray(message.documentUrls) && message.documentUrls.length > 0 // Add this line
+      };
+      const { model } = chooseModel(turnContext);
+  
+      let systemInstruction = getSystemPrompt(turnContext.persona || 'Friend');
+      if (detectRomanized(promptText)) systemInstruction += " Please respond in Hinglish.";
+  
+      // --- 2) Fetch recent history in chronological order using createdAtMs ---
+      const histSnap = await db
+        .collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`)
+        .orderBy('createdAtMs', 'asc')         // <- use client ms
+        .limitToLast(30)
+        .get();
+  
+      type RawMsg = {
+        role: 'user' | 'assistant' | 'model' | 'system';
+        parts?: Array<{ text?: string }>;
+        content?: string;
+        imageUrls?: string[];
+      };
+  
+      const toGeminiTurn = (msg: RawMsg) => {
+        const role = (msg.role === 'assistant' || msg.role === 'model') ? 'model' : 'user';
+        const text =
+          (Array.isArray(msg.parts) && msg.parts[0]?.text) ||
+          (typeof msg.content === 'string' ? msg.content : '') ||
+          '';
+        return { role, parts: [{ text }] };
+      };
+  
+      let chatHistory = histSnap.docs.map(d => toGeminiTurn(d.data() as RawMsg));
+  
+      // Ensure first turn is 'user'
+      while (chatHistory.length && chatHistory[0].role !== 'user') {
+        chatHistory.shift();
+      }
+  
+      // --- 3) Start model, prepare optional image parts ---
+      const generativeModel = genAI.getGenerativeModel({
+        model,
+        safetySettings,
+        systemInstruction,
+      });
+  
+      async function urlToGenerativePart(url: string) {
+        const decodedUrl = decodeURIComponent(url);
+          const path = new URL(url).pathname;
+          const fileName = path.split('/').pop() || '';
+          const extension = fileName.split('.').pop()?.toLowerCase() || '';
+      
+          let mimeType: string | null = null; // Start with null
+      
+        // List of common code and text file extensions
+        const textBasedExtensions = [
+            'txt', 'md', 'json', 'xml', 'csv', 'html', 'css',
+            'js', 'ts', 'jsx', 'tsx', 'py', 'ipynb', 'java',
+            'c', 'cpp', 'cs', 'go', 'php', 'rb', 'swift', 'sql'
+        ];
+      
+        if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension)) {
+            mimeType = `image/${extension.replace('jpg', 'jpeg')}`;
+        } else if (extension === 'pdf') {
+            mimeType = 'application/pdf';
+        } else if (textBasedExtensions.includes(extension)) {
+            // Treat all these different file types as plain text.
+            // The Gemini model is excellent at understanding the underlying
+            // language (like Python or TypeScript) from the plain text content.
+            mimeType = 'text/plain';
         }
-        if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+      
+        // If mimeType is still null, the file type is unidentified.
+      
+        const protocol = url.startsWith('https') ? https : http;
+        const buffer = await new Promise<Buffer>((resolve, reject) => {
+            protocol.get(url, (res) => {
+                const data: Buffer[] = [];
+                res.on('data', (chunk) => data.push(chunk));
+                res.on('end', () => resolve(Buffer.concat(data)));
+                res.on('error', (err) => reject(err));
+            });
+        })
+      
+        // Return both the data and the identified mimeType (or null if unknown)
+        return {
+            part: { inlineData: { data: buffer.toString('base64'), mimeType: mimeType || '' } },
+            identifiedMimeType: mimeType
+        };
+      }
+      
+      const allUrls = [
+        ...(message.imageUrls || []),
+        ...(message.documentUrls || []),
+      ];
 
-        const { uid } = request.auth;
-        const { sessionId, message, context } = request.data;
+      const multimediaParts: Part[] = [];
+      let unsupportedFileName: string | null = null;
 
-        const firstPartText = (Array.isArray(message.parts) && message.parts[0]?.text) || (message.content ?? '');
+      // Process every URL through the same logic
+      for (const url of allUrls) {
+          const { part, identifiedMimeType } = await urlToGenerativePart(url);
+          
+          // This is the explicit check you correctly suggested.
+          // If the helper function could not identify a supported MIME type, we flag it.
+          if (!identifiedMimeType) {
+              const decodedUrl = decodeURIComponent(url);
+              unsupportedFileName = decodedUrl.split('/').pop()?.split('?')[0] || 'your file';
+              break; // Stop processing immediately
+          }
+          
+          multimediaParts.push(part);
+      }
+      if (unsupportedFileName) {
+        const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported. Please use a supported format like images, PDFs, or common text/code files.`;
         
-        await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc().set({ role: 'user', content: firstPartText, createdAt: FieldValue.serverTimestamp() });
-        await db.doc(`aiProfiles/${uid}/sessions/${sessionId}`).update({ updatedAt: FieldValue.serverTimestamp() });
-        
-        const promptText = firstPartText.trim();
-        const turnContext: TurnContext = { ...context, needsReasoning: detectComplexity(promptText) };
-        const { model } = chooseModel(turnContext);
-        
-        let systemInstruction = getSystemPrompt(turnContext.persona);
-        if (detectRomanized(promptText)) systemInstruction += " Please respond in Hinglish.";
-        
-        const histSnap = await db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).orderBy('createdAt', 'desc').limit(20).get();
-        const history = histSnap.docs.map(d => d.data() as Message).reverse();
+        const modelMsgRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+        await modelMsgRef.set({
+            role: 'assistant',
+            content: errorMessage,
+            createdAt: FieldValue.serverTimestamp(),
+            createdAtMs: Date.now(),
+        });
+        await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
 
-        const sanitizedHistory: Content[] = history.map(msg => ({
-            role: msg.role === 'assistant' ? 'model' : 'user',
-            parts: msg.parts || [{ text: msg.content || "" }]
-        }));
+        // Return the error message to the client
+        return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
+      }
+  
+      try {
+        const chat = chatHistory.length
+          ? generativeModel.startChat({ history: chatHistory })
+          : generativeModel.startChat();
 
-        try {
-            const generativeModel = genAI.getGenerativeModel({ model, safetySettings, systemInstruction });
-            const chat = generativeModel.startChat({ history: sanitizedHistory });
-            const result = await chat.sendMessage(promptText);
-            const text = result.response.text();
-            
-            const modelMessageRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
-            await modelMessageRef.set({ role: 'assistant', content: text, createdAt: FieldValue.serverTimestamp() });
-
-            return { messageId: modelMessageRef.id, text, modelUsed: model };
-        } catch (error) {
-            logger.error("Error generating chat response:", error);
-            throw new HttpsError("internal", "Failed to generate chat response.");
+        const messagePayload = [...multimediaParts];
+        if (promptText) {
+          messagePayload.push({ text: promptText });
         }
+        
+        if (messagePayload.length === 0) {
+            throw new HttpsError("invalid-argument", "Cannot send an empty message.");
+        }
+
+        const result = await chat.sendMessage(messagePayload);
+        const text = result.response.text() ?? "I've reviewed the document. What would you like to know?";
+
+        // --- 5) Save assistant turn ---
+        const modelMsgRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
+        await modelMsgRef.set({
+          role: 'assistant',
+          content: text,
+          createdAt: FieldValue.serverTimestamp(),
+          createdAtMs: Date.now(),
+        });
+        await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
+  
+        return { messageId: modelMsgRef.id, text, modelUsed: model };
+    } catch (err) {
+        logger.error("Error generating chat response:", err);
+        throw new HttpsError("internal", "Failed to generate chat response.");
+      }
     }
-);
+  );
 
 // --- Other Functions (Restored with full implementation) ---
 export const ensureProfile = onCall<EnsureProfileReq, Promise<EnsureProfileRes>>(async (request) => {
@@ -245,6 +420,29 @@ export const uploadImage = onCall<UploadImageReq, Promise<UploadImageRes>>(
     }
 });
 
+export const uploadFile = onCall<UploadFileReq, Promise<UploadFileRes>>(
+  { secrets: ["GEMINI_API_KEY"] },
+  async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+  const { fileData, fileName } = request.data;
+  const uid = request.auth.uid;
+
+  const bucket = getStorage().bucket();
+  const filePath = `user-uploads/${uid}/documents/${fileName}`;
+  const file = bucket.file(filePath);
+
+  const buffer = Buffer.from(fileData, 'base64');
+  
+  try {
+      await file.save(buffer);
+      await file.makePublic();
+      return { fileUrl: file.publicUrl() };
+  } catch (error) {
+      logger.error("Error uploading file:", error);
+      throw new HttpsError("internal", "Failed to upload file.");
+  }
+});
+
 export const performWebSearch = onRequest(
     { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
     async (req, res) => {
@@ -279,16 +477,16 @@ export const deleteAccountData = onCall(async (request) => {
     }
     const { uid } = request.auth;
     logger.info("Attempting to delete account data for UID:", uid);
-    
+
     try {
       logger.info("Step 1: Deleting Firestore data for user:", uid);
       await db.recursiveDelete(db.collection('aiProfiles').doc(uid));
       logger.info("Step 1 complete. Firestore data deleted.");
-    
+
       logger.info("Step 2: Deleting user from Firebase Authentication for UID:", uid);
       await getAuth().deleteUser(uid);
       logger.info("Step 2 complete. Firebase Auth user deleted successfully.");
-    
+
       return { success: true };
     } catch (error) {
       logger.error("Error during account deletion for UID:", uid, "Error:", error);
