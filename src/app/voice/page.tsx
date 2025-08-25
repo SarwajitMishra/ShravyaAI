@@ -62,9 +62,13 @@ export default function VoicePage() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const newMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
-            newMediaRecorder.ondataavailable = (event) => {
+            newMediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMuted) {
-                    socketRef.current?.send(JSON.stringify({ event: 'audio', data: event.data }));
+                    // Convert Blob to base64 string
+                    const arrayBuffer = await event.data.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    const base64Audio = buffer.toString('base64');
+                    socketRef.current?.send(JSON.stringify({ event: 'audio', data: base64Audio }));
                 }
             };
             newMediaRecorder.start(500); // Send audio chunks every 500ms
