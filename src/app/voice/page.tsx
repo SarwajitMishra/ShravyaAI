@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -68,8 +69,10 @@ export default function VoicePage() {
     }, [isMuted]);
 
     const handleEndCall = useCallback(() => {
-        if (socketRef.current) {
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ event: 'stop' }));
+        }
+        if (socketRef.current) {
             socketRef.current.close();
             socketRef.current = null;
         }
