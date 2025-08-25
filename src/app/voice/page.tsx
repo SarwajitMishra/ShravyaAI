@@ -166,7 +166,7 @@ export default function VoicePage() {
             stopRecording();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, activeCallSessionId, activePersona]); // Keep dependencies minimal to avoid re-runs
+    }, [user, activeCallSessionId]); 
     
     // This effect handles the case where the call is ended from outside (e.g., PiP view)
     useEffect(() => {
