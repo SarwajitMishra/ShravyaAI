@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Mic, PhoneOff, ArrowLeft, MicOff, Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -17,25 +17,30 @@ export default function VoicePage() {
     const socketRef = useRef<WebSocket | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
+    
+    // Refs to hold current state values to avoid them being stale in closures
     const isCallActiveRef = useRef(isCallActive);
-    const isMountedRef = useRef(true); // Track component mount status
+    const isMutedRef = useRef(isMuted);
 
+    // Keep refs updated with the latest state
     useEffect(() => {
         isCallActiveRef.current = isCallActive;
     }, [isCallActive]);
-    
+
     useEffect(() => {
-        isMountedRef.current = true;
-        return () => {
-            isMountedRef.current = false;
-        };
-    }, []);
+        isMutedRef.current = isMuted;
+    }, [isMuted]);
 
     const playAudio = useCallback(async (audioBuffer: Buffer) => {
         if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            // Check for window to ensure it runs only on the client
+            if (typeof window !== 'undefined') {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
         }
         const audioContext = audioContextRef.current;
+        if (!audioContext) return;
+
         try {
             const buffer = await audioContext.decodeAudioData(audioBuffer.buffer);
             const source = audioContext.createBufferSource();
@@ -62,21 +67,22 @@ export default function VoicePage() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const newMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
+            
             newMediaRecorder.ondataavailable = async (event) => {
-                if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMuted) {
-                    // Convert Blob to base64 string
+                if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMutedRef.current) {
                     const arrayBuffer = await event.data.arrayBuffer();
                     const buffer = Buffer.from(arrayBuffer);
                     const base64Audio = buffer.toString('base64');
                     socketRef.current?.send(JSON.stringify({ event: 'audio', data: base64Audio }));
                 }
             };
+            
             newMediaRecorder.start(500); // Send audio chunks every 500ms
             mediaRecorderRef.current = newMediaRecorder;
         } catch (error) {
             console.error("Error accessing microphone:", error);
         }
-    }, [isMuted, stopRecording]);
+    }, [stopRecording]);
 
     const handleEndCall = useCallback(() => {
         if (socketRef.current) {
@@ -88,22 +94,21 @@ export default function VoicePage() {
         }
         stopRecording();
         endCall(); 
-        // We no longer need to check isMounted here, router.push handles it.
         router.push('/chat');
     }, [stopRecording, endCall, router]);
 
 
     useEffect(() => {
         if (!isCallActive || !user || !activeCallSessionId || !activePersona) {
-            if (isMountedRef.current) {
-                router.push('/chat');
-            }
+            router.push('/chat');
             return;
         }
 
+        let isComponentMounted = true;
         let reconnectAttempts = 0;
+
         const connect = async () => {
-            if (!isMountedRef.current || !isCallActiveRef.current) return;
+            if (!isComponentMounted || !isCallActiveRef.current) return;
 
             const token = await user.getIdToken();
             const websocketUrl = `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
@@ -111,6 +116,7 @@ export default function VoicePage() {
             socketRef.current = socket;
 
             socket.onopen = () => {
+                console.log("WebSocket connected");
                 reconnectAttempts = 0;
                 socket.send(JSON.stringify({ event: 'start', persona: activePersona, sessionId: activeCallSessionId }));
                 startRecording();
@@ -125,26 +131,46 @@ export default function VoicePage() {
             };
 
             socket.onclose = () => {
-                if (isMountedRef.current && isCallActiveRef.current) {
+                console.log("WebSocket closed");
+                if (isComponentMounted && isCallActiveRef.current) {
                     reconnectAttempts++;
                     const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
+                    console.log(`Attempting to reconnect in ${delay}ms...`);
                     setTimeout(connect, delay);
                 }
             };
             
             socket.onerror = (error) => {
                 console.error("WebSocket error:", error);
-                socket.close();
+                socket.close(); // This will trigger onclose and the reconnect logic
             };
         };
 
         connect();
 
         return () => {
-            handleEndCall();
+            isComponentMounted = false;
+            // Clear the isCallActiveRef to prevent reconnection on unmount
+            isCallActiveRef.current = false; 
+            if (socketRef.current) {
+                if (socketRef.current.readyState === WebSocket.OPEN) {
+                   socketRef.current.send(JSON.stringify({ event: 'stop' }));
+                }
+                socketRef.current.close();
+                socketRef.current = null;
+            }
+            stopRecording();
         };
-    }, [isCallActive, user, activeCallSessionId, activePersona, router, startRecording, playAudio, handleEndCall]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, activeCallSessionId, activePersona]); // Keep dependencies minimal to avoid re-runs
     
+    // This effect handles the case where the call is ended from outside (e.g., PiP view)
+    useEffect(() => {
+        if (!isCallActive && socketRef.current) {
+           handleEndCall();
+        }
+    }, [isCallActive, handleEndCall]);
+
     if (!isCallActive || !activePersona) {
         return <div className="flex h-screen w-full items-center justify-center"><p>Loading call...</p></div>;
     }
