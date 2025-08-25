@@ -11,17 +11,25 @@ import { useCall } from '@/components/providers/call-provider';
 
 export default function VoicePage() {
     const { user } = useAuth();
-    const { isCallActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall, forceEndCallRef } = useCall();
+    const { isCallActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall } = useCall();
     const router = useRouter();
 
     const socketRef = useRef<WebSocket | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const isCallActiveRef = useRef(isCallActive);
+    const isMountedRef = useRef(true); // Track component mount status
 
     useEffect(() => {
         isCallActiveRef.current = isCallActive;
     }, [isCallActive]);
+    
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     const playAudio = useCallback(async (audioBuffer: Buffer) => {
         if (!audioContextRef.current) {
@@ -43,58 +51,56 @@ export default function VoicePage() {
         if (mediaRecorderRef.current?.state === 'recording') {
             mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
             mediaRecorderRef.current.stop();
+            mediaRecorderRef.current = null;
         }
     }, []);
 
     const startRecording = useCallback(async () => {
+        if (mediaRecorderRef.current) {
+            stopRecording();
+        }
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
-            mediaRecorderRef.current.ondataavailable = (event) => {
+            const newMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
+            newMediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMuted) {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(event.data);
-                    reader.onloadend = () => {
-                        const base64Audio = reader.result?.toString().split(',')[1];
-                        if (base64Audio) {
-                            socketRef.current?.send(JSON.stringify({ event: 'audio', data: base64Audio }));
-                        }
-                    };
+                    socketRef.current?.send(JSON.stringify({ event: 'audio', data: event.data }));
                 }
             };
-            mediaRecorderRef.current.start(500);
+            newMediaRecorder.start(500); // Send audio chunks every 500ms
+            mediaRecorderRef.current = newMediaRecorder;
         } catch (error) {
             console.error("Error accessing microphone:", error);
         }
-    }, [isMuted]);
+    }, [isMuted, stopRecording]);
 
     const handleEndCall = useCallback(() => {
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify({ event: 'stop' }));
-        }
         if (socketRef.current) {
+            if (socketRef.current.readyState === WebSocket.OPEN) {
+                socketRef.current.send(JSON.stringify({ event: 'stop' }));
+            }
             socketRef.current.close();
             socketRef.current = null;
         }
         stopRecording();
-        endCall();
+        endCall(); 
+        // We no longer need to check isMounted here, router.push handles it.
         router.push('/chat');
     }, [stopRecording, endCall, router]);
 
-    useEffect(() => {
-        return () => {
-            handleEndCall();
-        };
-    }, [handleEndCall]);
 
     useEffect(() => {
         if (!isCallActive || !user || !activeCallSessionId || !activePersona) {
-            router.push('/chat');
+            if (isMountedRef.current) {
+                router.push('/chat');
+            }
             return;
         }
 
         let reconnectAttempts = 0;
         const connect = async () => {
+            if (!isMountedRef.current || !isCallActiveRef.current) return;
+
             const token = await user.getIdToken();
             const websocketUrl = `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
             const socket = new WebSocket(websocketUrl);
@@ -115,26 +121,25 @@ export default function VoicePage() {
             };
 
             socket.onclose = () => {
-                if (isCallActiveRef.current) {
+                if (isMountedRef.current && isCallActiveRef.current) {
                     reconnectAttempts++;
                     const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
                     setTimeout(connect, delay);
                 }
             };
             
-            socket.onerror = () => socket.close();
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                socket.close();
+            };
         };
 
         connect();
 
-        // This is the cleanup function that runs when the user leaves the page FOR GOOD (e.g. closes tab)
         return () => {
-            if (socketRef.current) {
-                socketRef.current.close();
-            }
-            stopRecording();
+            handleEndCall();
         };
-    }, [isCallActive, user, activeCallSessionId, activePersona, router, startRecording, stopRecording, playAudio]);
+    }, [isCallActive, user, activeCallSessionId, activePersona, router, startRecording, playAudio, handleEndCall]);
     
     if (!isCallActive || !activePersona) {
         return <div className="flex h-screen w-full items-center justify-center"><p>Loading call...</p></div>;
