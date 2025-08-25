@@ -942,7 +942,7 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                     </div>
                     <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
                         {ENABLE_VOICE_MODE && (
-                            <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => router.push('/voice')}>
+                            <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={handleStartCall}>
                                 <Phone className="h-5 w-5" />
                             </Button>
                         )}
