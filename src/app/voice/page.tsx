@@ -11,7 +11,7 @@ import { useCall } from '@/components/providers/call-provider';
 
 export default function VoicePage() {
     const { user } = useAuth();
-    const { isCallActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall } = useCall();
+    const { isCallActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall } = useCall();
     const router = useRouter();
 
     const socketRef = useRef<WebSocket | null>(null);
@@ -21,6 +21,7 @@ export default function VoicePage() {
     // Refs to hold current state values to avoid them being stale in closures
     const isCallActiveRef = useRef(isCallActive);
     const isMutedRef = useRef(isMuted);
+    const isMountedRef = useRef(true);
 
     // Keep refs updated with the latest state
     useEffect(() => {
@@ -99,16 +100,18 @@ export default function VoicePage() {
 
 
     useEffect(() => {
+        isMountedRef.current = true;
+        setIsPipViewActive(false); // We are on the main voice page, so hide PiP
+
         if (!isCallActive || !user || !activeCallSessionId || !activePersona) {
             router.push('/chat');
             return;
         }
-
-        let isComponentMounted = true;
+        
         let reconnectAttempts = 0;
 
         const connect = async () => {
-            if (!isComponentMounted || !isCallActiveRef.current) return;
+            if (!isMountedRef.current || !isCallActiveRef.current) return;
 
             const token = await user.getIdToken();
             const websocketUrl = `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
@@ -132,7 +135,7 @@ export default function VoicePage() {
 
             socket.onclose = () => {
                 console.log("WebSocket closed");
-                if (isComponentMounted && isCallActiveRef.current) {
+                if (isMountedRef.current && isCallActiveRef.current) {
                     reconnectAttempts++;
                     const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
                     console.log(`Attempting to reconnect in ${delay}ms...`);
@@ -149,9 +152,10 @@ export default function VoicePage() {
         connect();
 
         return () => {
-            isComponentMounted = false;
-            // Clear the isCallActiveRef to prevent reconnection on unmount
-            isCallActiveRef.current = false; 
+            isMountedRef.current = false;
+            if (isCallActiveRef.current) {
+                setIsPipViewActive(true); // User is leaving the page but call is active
+            }
             if (socketRef.current) {
                 if (socketRef.current.readyState === WebSocket.OPEN) {
                    socketRef.current.send(JSON.stringify({ event: 'stop' }));
@@ -175,9 +179,14 @@ export default function VoicePage() {
         return <div className="flex h-screen w-full items-center justify-center"><p>Loading call...</p></div>;
     }
 
+    const goBackToChat = () => {
+        setIsPipViewActive(true);
+        router.push('/chat');
+    };
+
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
-            <Button variant="ghost" size="icon" className="absolute top-4 left-4" onClick={() => router.push('/chat')}>
+            <Button variant="ghost" size="icon" className="absolute top-4 left-4" onClick={goBackToChat}>
                 <ArrowLeft className="h-6 w-6" />
             </Button>
             <p className="text-lg text-muted-foreground mb-4">You are speaking with</p>

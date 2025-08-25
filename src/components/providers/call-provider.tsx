@@ -1,9 +1,12 @@
+
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useRef } from 'react';
 
 type CallContextType = {
   isCallActive: boolean;
+  isPipViewActive: boolean; // Add this line
+  setIsPipViewActive: (isActive: boolean) => void; // Add this line
   activeCallSessionId: string | null;
   activePersona: string | null;
   isMuted: boolean;
@@ -17,6 +20,7 @@ const CallContext = createContext<CallContextType | undefined>(undefined);
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const [isCallActive, setIsCallActive] = useState(false);
+  const [isPipViewActive, setIsPipViewActive] = useState(false); // Add this line
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
   const [activePersona, setActivePersona] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -26,6 +30,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
     setIsCallActive(true);
+    setIsPipViewActive(false); // Ensure PiP is hidden when starting
   }, []);
 
   const endCall = useCallback((force = false) => {
@@ -33,6 +38,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         forceEndCallRef.current();
     }
     setIsCallActive(false);
+    setIsPipViewActive(false); // Ensure PiP is hidden when ending
     setActiveCallSessionId(null);
     setActivePersona(null);
   }, []);
@@ -40,7 +46,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
 
   return (
-    <CallContext.Provider value={{ isCallActive, activeCallSessionId, activePersona, isMuted, startCall, endCall, toggleMute, forceEndCallRef }}>
+    <CallContext.Provider value={{ isCallActive, isPipViewActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, startCall, endCall, toggleMute, forceEndCallRef }}>
       {children}
     </CallContext.Provider>
   );

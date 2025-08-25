@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Phone, Mic, MicOff, Volume2, PhoneOff } from 'lucide-react';
@@ -7,10 +8,10 @@ import Link from 'next/link';
 
 export function PipCallView() {
   // Get the live call state and functions from our global provider
-  const { isCallActive, activePersona, isMuted, toggleMute, endCall } = useCall();
+  const { isPipViewActive, activePersona, isMuted, toggleMute, endCall } = useCall();
 
   // If there is no active call, this component renders nothing.
-  if (!isCallActive) {
+  if (!isPipViewActive) {
     return null;
   }
 
