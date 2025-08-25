@@ -10,6 +10,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import AuthWrapper from "@/components/providers/auth-wrapper";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { CallProvider } from '@/components/providers/call-provider'; // 1. Import it
+
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -28,6 +30,8 @@ export const viewport: Viewport = {
   themeColor: "#FF9933",
 }
 
+
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -37,6 +41,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={GeistSans.className} suppressHydrationWarning>
         <AuthProvider>
+        <CallProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -47,6 +52,7 @@ export default function RootLayout({
             <Analytics />
             <SpeedInsights />
           </ThemeProvider>
+          </CallProvider>
         </AuthProvider>
       </body>
     </html>

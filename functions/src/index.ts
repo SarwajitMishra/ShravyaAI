@@ -1,20 +1,26 @@
+import { initializeApp } from "firebase-admin/app";
+initializeApp();
+
+export { liveVoicePipeline } from './voice-pipeline';
 
 import { onCall, onRequest, HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
-import { initializeApp } from "firebase-admin/app";
+
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { Readable } from "stream";
 import { Request, Response } from "express";
-import { GoogleGenerativeAI, Part, Content, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import { GoogleGenerativeAI, Part, Content, HarmCategory, HarmBlockThreshold, FunctionDeclarationSchemaType } from "@google/generative-ai";
 import * as crypto from 'crypto';
 import { getCurrentEvent } from './cultural-calendar';
 import * as http from 'http';
 import https from 'https';
+import { SpeechClient } from '@google-cloud/speech';
+
 
 // --- Types ---
-type Persona = 'Friend' | 'Teacher' | 'Spiritual' | 'Pro' | 'Storyteller';
+type Persona = 'Buddy' | 'Doctor Dadi' | 'Peace Pandit' | 'Bug Baba' | 'Zindagi Guru';
 type LangIntent = 'auto' | 'hi' | 'en' | 'ta' | 'te' | 'mr' | 'bn' | 'ml' | 'hinglish';
 type UserTier = 'free' | 'pro';
 
@@ -60,11 +66,26 @@ interface UploadImageReq { imageData: string; fileName: string }
 interface UploadImageRes { fileUrl: string }
 interface UploadFileReq { fileData: string; fileName: string }
 interface UploadFileRes { fileUrl: string }
+interface UploadFileRes { fileUrl: string } // This should already be there
+
+interface TranscribeAudioReq {
+  audioData: string;
+  langIntent?: LangIntent; 
+  conversationHistory?: string[]; 
+}
+
+interface TranscribeAudioRes { transcription: string }
+interface GenerateTitleReq { sessionId: string }
+interface GenerateTitleRes { title: string }
+
+
 
 // --- Firebase and Gemini API Initialization ---
-initializeApp();
+
 const db = getFirestore();
 const geminiApiKey = process.env.GEMINI_API_KEY;
+const speechClient = new SpeechClient();
+
 
 // Initialize with a placeholder if the key is missing during analysis
 let genAI: GoogleGenerativeAI;
@@ -84,13 +105,57 @@ const safetySettings = [
     { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
 
+
+// --- Define the Web Search Tool for the AI ---
+const webSearchTool = {
+  functionDeclarations: [
+    {
+      name: "performWebSearch",
+      description: "Performs a web search to find real-time information, recent events, or topics outside of its core knowledge. Use this for questions about current events, stock prices, weather, or when the user explicitly asks you to search.",
+      parameters: {
+        type: FunctionDeclarationSchemaType.OBJECT, // FIX: Use the imported enum
+        properties: {
+          query: {
+            type: FunctionDeclarationSchemaType.STRING, // FIX: Use the imported enum
+            description: "The search query to use."
+          }
+        },
+        required: ["query"]
+      }
+    }
+  ]
+};
+
+
+
+
 // --- Core Logic Functions (Simplified for Gemini Dev API) ---
 function createHash(input: string): string { return crypto.createHash('md5').update(input).digest('hex'); }
-function detectRomanized(text: string): boolean { const words = ['kya', 'hai', 'aur', 'kaise', 'ho']; return words.some(w => text.toLowerCase().includes(w)); }
-function getSystemPrompt(persona: Persona): string {
-    const prompts = { Friend: "You are a friendly companion.", Teacher: "You are an expert educator.", Pro: "You are a professional expert.", Storyteller: "You are a master storyteller.", Spiritual: "You are a wise spiritual guide." };
-    return prompts[persona] || prompts.Friend;
+
+
+function getSystemPrompt(persona: Persona, langIntent: LangIntent): string {
+  // Base instructions for language and formatting
+  const baseInstruction = `You are a helpful assistant powered by Google's Gemini 1.5 model. Your knowledge cutoff is May 2024. You have access to a tool called 'performWebSearch' that you can use to find real-time information. You should decide to use this tool when the user's prompt suggests a need for current information beyond your knowledge cutoff, or when they explicitly ask you to search.`;
+  
+  let languageInstruction = (langIntent === 'auto')
+    ? `Your primary directive is to strictly match the user's language on a turn-by-turn basis. Analyze the user's prompt and respond ONLY in the same language and script. For example: if the user writes in pure Hindi (Devanagari script), your response must be in pure Hindi. If the user writes in Hinglish (Hindi words with Latin script), your response must be in Hinglish. If they switch to Tamil, you must switch to Tamil. Do not mix languages unless the user does.`
+    : `You must respond exclusively in ${langIntent}.`;
+
+  const formattingInstruction = "Structure all of your responses for clarity and visual appeal. Use markdown for formatting: use **bold text** for emphasis and titles, *italics* for nuance, and bulleted or numbered lists for steps or ideas. Break down long text into smaller, easy-to-read paragraphs. Incorporate relevant emojis to make the tone more engaging and friendly, but use them thoughtfully where appropriate. Your final response should always be well-structured and beautifully formatted.";
+
+  // New, revamped persona prompts
+  const personaPrompts: Record<Persona, string> =  {
+      'Buddy': "You are Buddy, the ultimate girl childhood best friend in her 20s who always makes conversations fun. You roast gently, tease a lot, and bring nostalgia. You use Indian pop culture, Bollywood, memes, and slang. Your role is to keep things light, funny, and banter-filled—like a school/college friend who never grew up.",
+      'Doctor Dadi': "You are Doctor Dadi, a witty Indian grandmother who mixes modern health advice with traditional desi remedies. You speak warmly, with a hint of playful scolding. You love recommending haldi-doodh, adrak chai, yoga, and lifestyle hacks. Always keep it light-hearted, funny, but helpful. Give practical tips, but in a caring and dramatic “dadi” tone.",
+      'Peace Pandit': "You are Peace Pandit, a calm, soothing guru who helps people with stress, anxiety, and life’s tensions. You speak slowly, with wisdom, and give meditation hacks, positivity mantras, and simple spiritual exercises. You occasionally drop light jokes or metaphors so users smile and relax. Always bring a peaceful, reassuring vibe.",
+      'Bug Baba': "You are Bug Baba, a quirky coding lady guru who loves solving bugs and explaining technical concepts. You mix humor with sharp coding advice. You often joke about compilers, semicolons, and debugging, but your explanations are crystal clear. Your tone is nerdy, witty, and supportive—like a coder friend who has seen every bug in the world.",
+      'Zindagi Guru': "You are Zindagi Guru, a motivational leader and spiritual guide rolled into one. You speak with energy, truth, and wisdom. You use metaphors, real-life stories, and powerful words to inspire discipline, self-belief, and resilience. Your tone is uplifting, dramatic, and deeply Indian in spirit—mixing philosophy with motivation."
+  };
+  
+  // Combine all instructions, with 'Buddy' as the default
+  return `${baseInstruction} ${languageInstruction} ${formattingInstruction} ${personaPrompts[persona] || personaPrompts['Buddy']}`;
 }
+
 function detectComplexity(prompt: string): boolean {
     const keywords = ['explain', 'why', 'how to', 'what if', 'compare', 'analyze', 'solve'];
     return keywords.some(k => prompt.toLowerCase().includes(k));
@@ -164,8 +229,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
       };
       const { model } = chooseModel(turnContext);
   
-      let systemInstruction = getSystemPrompt(turnContext.persona || 'Friend');
-      if (detectRomanized(promptText)) systemInstruction += " Please respond in Hinglish.";
+      let systemInstruction = getSystemPrompt(turnContext.persona || 'Friend', turnContext.lang || 'auto');
   
       // --- 2) Fetch recent history in chronological order using createdAtMs ---
       const histSnap = await db
@@ -173,6 +237,9 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
         .orderBy('createdAtMs', 'asc')         // <- use client ms
         .limitToLast(30)
         .get();
+      
+        // to check if the history is empty
+      const isFirstTurn = histSnap.empty;
   
       type RawMsg = {
         role: 'user' | 'assistant' | 'model' | 'system';
@@ -282,15 +349,26 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
             createdAtMs: Date.now(),
         });
         await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
+       
 
         // Return the error message to the client
         return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
       }
   
+      // functions/src/index.ts
+
+      // functions/src/index.ts
+
       try {
-        const chat = chatHistory.length
-          ? generativeModel.startChat({ history: chatHistory })
-          : generativeModel.startChat();
+        // --- 4) Send to AI and Handle Tool Calling ---
+        const generativeModel = genAI.getGenerativeModel({
+            model,
+            safetySettings,
+            systemInstruction,
+            tools: [webSearchTool], // This was already correct, but for clarity
+        });
+
+        const chat = generativeModel.startChat({ history: chatHistory });
 
         const messagePayload = [...multimediaParts];
         if (promptText) {
@@ -301,8 +379,33 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
             throw new HttpsError("invalid-argument", "Cannot send an empty message.");
         }
 
-        const result = await chat.sendMessage(messagePayload);
-        const text = result.response.text() ?? "I've reviewed the document. What would you like to know?";
+        const initialResult = await chat.sendMessage(messagePayload);
+        let finalResponse = initialResult.response;
+
+        // FIX: Call functionCalls as a method with ()
+        const functionCalls = finalResponse.functionCalls(); 
+        if (functionCalls && functionCalls.length > 0) {
+            const call = functionCalls[0];
+            
+            // FIX: Add a type assertion to tell TypeScript what 'args' contains
+            const args = call.args as { query?: string };
+
+            if (call.name === 'performWebSearch' && args.query) {
+                const searchResults = await _internalPerformWebSearch(args.query);
+
+                const toolResponseResult = await chat.sendMessage([
+                    {
+                        functionResponse: {
+                            name: 'performWebSearch',
+                            response: { name: 'performWebSearch', content: searchResults },
+                        },
+                    },
+                ]);
+                finalResponse = toolResponseResult.response;
+            }
+        }
+
+        const text = finalResponse.text() ?? "I've reviewed the information. How can I help?";
 
         // --- 5) Save assistant turn ---
         const modelMsgRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`).doc();
@@ -313,12 +416,24 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           createdAtMs: Date.now(),
         });
         await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
-  
+
+        // --- 6) Generate Smart Title (only once) ---
+        const sessionSnap = await sessionRef.get();
+        const hasGeneratedTitle = sessionSnap.data()?.hasGeneratedTitle === true;
+        
+        // We only generate a title if the flag is not set.
+        if (!hasGeneratedTitle) {
+            // We don't need to wait for this to finish.
+            _internalGenerateTitle(sessionId, uid);
+        }
+
         return { messageId: modelMsgRef.id, text, modelUsed: model };
+
+
     } catch (err) {
         logger.error("Error generating chat response:", err);
         throw new HttpsError("internal", "Failed to generate chat response.");
-      }
+    }
     }
   );
 
@@ -337,7 +452,7 @@ export const ensureProfile = onCall<EnsureProfileReq, Promise<EnsureProfileRes>>
         profile: {
           uid,
           displayName: request.auth.token.name || "",
-          defaultMode: "Friend",
+          defaultMode: "Buddy",
           languageIntent: "auto",
           tier: 'free',
           createdAt: FieldValue.serverTimestamp(),
@@ -443,6 +558,31 @@ export const uploadFile = onCall<UploadFileReq, Promise<UploadFileRes>>(
   }
 });
 
+
+async function _internalPerformWebSearch(query: string): Promise<any> {
+  if (!query) return { error: "Missing query." };
+
+  // This logic is copied directly from your existing performWebSearch function
+  const apiKey = process.env.GOOGLE_SEARCH_API_KEY!;
+  const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID!;
+  const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
+
+  try {
+      const response = await fetch(url);
+      const json = await response.json() as { items?: any[] };
+      if (!response.ok) {
+          logger.error("CSE error", json);
+          return { error: "Search failed." };
+      }
+      // Return the data in a clean format for the AI
+      return (json.items || []).map((it: any) => ({ title: it.title, link: it.link, snippet: it.snippet }));
+  } catch (e) {
+      logger.error("performWebSearch error", e);
+      return { error: "Unexpected error during search." };
+  }
+}
+
+
 export const performWebSearch = onRequest(
     { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
     async (req, res) => {
@@ -493,3 +633,120 @@ export const deleteAccountData = onCall(async (request) => {
       throw new HttpsError("internal", "Failed to delete account data.");
     }
 });
+
+
+// functions/src/index.ts
+
+export const transcribeAudio = onCall<TranscribeAudioReq, Promise<TranscribeAudioRes>>(
+  { secrets: ["GEMINI_API_KEY"] },
+  async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+  const { audioData, langIntent, conversationHistory } = request.data; // Get the new history
+  const uid = request.auth.uid;
+
+  if (!audioData) {
+      throw new HttpsError("invalid-argument", "Missing required field: audioData.");
+  }
+
+  try {
+      const audioBytes = audioData.split(',')[1];
+      const config = {
+          encoding: 'WEBM_OPUS' as const,
+          sampleRateHertz: 48000,
+          languageCode: 'en-IN',
+          model: 'telephony',
+          useEnhanced: true,
+          alternativeLanguageCodes: ['hi-IN', 'ta-IN', 'te-IN'],
+      };
+      
+      const [response] = await speechClient.recognize({ audio: { content: audioBytes }, config });
+      const rawTranscription = (response.results || [])
+          .map((result: any) => result.alternatives[0].transcript)
+          .join('\n');
+          
+      if (!rawTranscription) {
+          return { transcription: "Sorry, I couldn't hear that. Please try again." };
+      }
+
+      // --- CONTEXT-AWARE ENHANCEMENT ---
+      const generativeModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+      
+      const historyContext = conversationHistory && conversationHistory.length > 0
+          ? `The user's recent messages are: ${JSON.stringify(conversationHistory)}. Analyze this history to determine their preferred language style (e.g., Hinglish, pure Hindi, etc.).`
+          : "The user's language preference is unknown.";
+
+      const enhancementInstruction = `Your task is to intelligently format a raw audio transcription. First, ${historyContext} Then, format the following "Raw Transcription" to perfectly match that style. Correct any spelling or grammar errors. For example, if the history is in Hinglish (Roman script), the final output must also be in Hinglish, even if the user spoke pure Hindi. Do not add any extra commentary, just provide the final text.`;
+      
+      const prompt = `${enhancementInstruction}\n\nRaw Transcription: "${rawTranscription}"`;
+
+      const result = await generativeModel.generateContent(prompt);
+      const enhancedText = result.response.text() ?? rawTranscription;
+
+      return { transcription: enhancedText };
+
+  } catch (error) {
+      logger.error("Error transcribing audio for user:", uid, "Error:", error);
+      throw new HttpsError("internal", "Failed to process audio.");
+  }
+});
+
+
+async function _internalGenerateTitle(sessionId: string, uid: string) {
+  // 1. Fetch the first two messages
+  const messagesSnap = await db
+      .collection(`aiProfiles/${uid}/sessions/${sessionId}/messages`)
+      .orderBy('createdAtMs', 'asc')
+      .limit(2)
+      .get();
+
+  if (messagesSnap.docs.length < 2) {
+      return "New Chat";
+  }
+
+  const userMessage = messagesSnap.docs[0].data().content;
+  const assistantMessage = messagesSnap.docs[1].data().content;
+
+  // 2. Create the prompt for the AI
+  const generativeModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+  const prompt = `Based on this initial exchange, create a short, descriptive title for the chat session (maximum 5 words, no quotes).
+  User: "${userMessage}"
+  Assistant: "${assistantMessage}"
+  Title:`;
+
+  try {
+      const result = await generativeModel.generateContent(prompt);
+      const generatedTitle = result.response.text()?.replace(/["']/g, "").trim() || "Chat Summary";
+
+      // 3. Update the session document with the title AND the new flag
+      const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+      await sessionRef.update({
+          title: generatedTitle,
+          hasGeneratedTitle: true // Add this line
+      });
+
+      return generatedTitle;
+  } catch (error) {
+      logger.error("Error generating title for session:", sessionId, error);
+      return "Chat Summary";
+  }
+}
+
+export const generateTitleForSession = onCall<GenerateTitleReq, Promise<GenerateTitleRes>>(
+  { secrets: ["GEMINI_API_KEY"] },
+  async (request) => {
+      if (!request.auth) {
+          throw new HttpsError("unauthenticated", "This is a private function.");
+      }
+      const { sessionId } = request.data;
+      const { uid } = request.auth;
+
+      if (!sessionId) {
+          throw new HttpsError("invalid-argument", "Missing sessionId.");
+      }
+
+      // Just call the helper and return its result
+      const title = await _internalGenerateTitle(sessionId, uid);
+      return { title };
+  }
+);
+

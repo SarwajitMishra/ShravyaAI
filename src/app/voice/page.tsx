@@ -1,201 +1,165 @@
+"use client";
 
-'use client';
-
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Mic, Square } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Mic, PhoneOff, ArrowLeft, MicOff, Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MicVAD, utils } from '@ricky0123/vad-web';
-
-const WEBSOCKET_URL = "wss://voice-server-709848175384.us-central1.run.app";
-
-type TranscriptEntry = {
-  speaker: 'user' | 'ai';
-  text: string;
-};
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/providers/auth-provider';
+import { useCall } from '@/components/providers/call-provider';
 
 export default function VoicePage() {
-  const { toast } = useToast();
-  const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  
-  const vadRef = useRef<MicVAD | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const animationFrameIdRef = useRef<number | null>(null);
+    const { user } = useAuth();
+    const { isCallActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall, forceEndCallRef } = useCall();
+    const router = useRouter();
 
-  const drawWaveform = () => {
-    const canvas = canvasRef.current;
-    const analyser = analyserRef.current;
-    if (!canvas || !analyser) return;
+    const socketRef = useRef<WebSocket | null>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const isCallActiveRef = useRef(isCallActive);
 
-    const canvasCtx = canvas.getContext('2d');
-    if (!canvasCtx) return;
+    useEffect(() => {
+        isCallActiveRef.current = isCallActive;
+    }, [isCallActive]);
 
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
-    const draw = () => {
-      animationFrameIdRef.current = requestAnimationFrame(draw);
-      analyser.getByteTimeDomainData(dataArray);
-
-      canvasCtx.fillStyle = 'hsl(var(--background))';
-      canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-      canvasCtx.lineWidth = 2;
-      canvasCtx.strokeStyle = 'hsl(var(--primary))';
-      canvasCtx.beginPath();
-
-      const sliceWidth = canvas.width * 1.0 / bufferLength;
-      let x = 0;
-
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0;
-        const y = v * canvas.height / 2;
-        if (i === 0) {
-          canvasCtx.moveTo(x, y);
-        } else {
-          canvasCtx.lineTo(x, y);
+    const playAudio = useCallback(async (audioBuffer: Buffer) => {
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         }
-        x += sliceWidth;
-      }
-      canvasCtx.lineTo(canvas.width, canvas.height / 2);
-      canvasCtx.stroke();
-    };
-    draw();
-  };
+        const audioContext = audioContextRef.current;
+        try {
+            const buffer = await audioContext.decodeAudioData(audioBuffer.buffer);
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start(0);
+        } catch (error) {
+            console.error("Error decoding or playing audio:", error);
+        }
+    }, []);
 
-  const stopRecording = () => {
-    vadRef.current?.destroy();
-    if (animationFrameIdRef.current) {
-      cancelAnimationFrame(animationFrameIdRef.current);
-    }
-    sourceRef.current?.disconnect();
-    analyserRef.current?.disconnect();
-    audioContextRef.current?.close();
-    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-    socketRef.current?.close();
-    setIsRecording(false);
-  };
+    const stopRecording = useCallback(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+            mediaRecorderRef.current.stop();
+        }
+    }, []);
 
-  const handleToggleRecording = async () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            noiseSuppression: true,
-            echoCancellation: true,
-            autoGainControl: true,
-          },
-        });
-        mediaStreamRef.current = stream;
+    const startRecording = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMuted) {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(event.data);
+                    reader.onloadend = () => {
+                        const base64Audio = reader.result?.toString().split(',')[1];
+                        if (base64Audio) {
+                            socketRef.current?.send(JSON.stringify({ event: 'audio', data: base64Audio }));
+                        }
+                    };
+                }
+            };
+            mediaRecorderRef.current.start(500);
+        } catch (error) {
+            console.error("Error accessing microphone:", error);
+        }
+    }, [isMuted]);
 
-        const audioContext = new AudioContext();
-        audioContextRef.current = audioContext;
-        const source = audioContext.createMediaStreamSource(stream);
-        sourceRef.current = source;
-        const analyser = audioContext.createAnalyser();
-        analyserRef.current = analyser;
-        analyser.fftSize = 2048;
-        source.connect(analyser);
-        drawWaveform();
+    const handleEndCall = useCallback(() => {
+        if (socketRef.current) {
+            socketRef.current.send(JSON.stringify({ event: 'stop' }));
+            socketRef.current.close();
+            socketRef.current = null;
+        }
+        stopRecording();
+        endCall();
+        router.push('/chat');
+    }, [stopRecording, endCall, router]);
 
-        const newVad = await MicVAD.new({
-          stream: stream,
-          onSpeechStart: () => setIsSpeaking(true),
-          onSpeechEnd: (audio) => {
-            setIsSpeaking(false);
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-              const wavBuffer = utils.encodeWAV(audio);
-              socketRef.current.send(wavBuffer);
-              socketRef.current.send(JSON.stringify({ type: 'endOfSpeech' }));
+    useEffect(() => {
+        return () => {
+            handleEndCall();
+        };
+    }, [handleEndCall]);
+
+    useEffect(() => {
+        if (!isCallActive || !user || !activeCallSessionId || !activePersona) {
+            router.push('/chat');
+            return;
+        }
+
+        let reconnectAttempts = 0;
+        const connect = async () => {
+            const token = await user.getIdToken();
+            const websocketUrl = `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
+            const socket = new WebSocket(websocketUrl);
+            socketRef.current = socket;
+
+            socket.onopen = () => {
+                reconnectAttempts = 0;
+                socket.send(JSON.stringify({ event: 'start', persona: activePersona, sessionId: activeCallSessionId }));
+                startRecording();
+            };
+            
+            socket.onmessage = async (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.event === 'audio' && msg.data) {
+                    const audioBuffer = Buffer.from(msg.data, 'base64');
+                    await playAudio(audioBuffer);
+                }
+            };
+
+            socket.onclose = () => {
+                if (isCallActiveRef.current) {
+                    reconnectAttempts++;
+                    const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
+                    setTimeout(connect, delay);
+                }
+            };
+            
+            socket.onerror = () => socket.close();
+        };
+
+        connect();
+
+        // This is the cleanup function that runs when the user leaves the page FOR GOOD (e.g. closes tab)
+        return () => {
+            if (socketRef.current) {
+                socketRef.current.close();
             }
-          },
-        });
-        vadRef.current = newVad;
-        
-        const newSocket = new WebSocket(WEBSOCKET_URL);
-        socketRef.current = newSocket;
-
-        newSocket.onopen = () => {
-          console.log('WebSocket connected.');
-          newVad.start();
-          setIsRecording(true);
+            stopRecording();
         };
-        newSocket.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'user_transcript') {
-            setTranscript(prev => [...prev, { speaker: 'user', text: data.text }]);
-          } else if (data.type === 'ai_response') {
-            setTranscript(prev => [...prev, { speaker: 'ai', text: data.text }]);
-            if (data.audio) {
-              const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-              audio.play();
-            }
-          }
-        };
-        newSocket.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          toast({ variant: 'destructive', title: 'Connection Error' });
-          stopRecording();
-        };
-        newSocket.onclose = () => {
-          console.log('WebSocket disconnected.');
-          stopRecording();
-        };
-
-        setTranscript([]);
-      } catch (error) {
-        console.error('Error initializing VAD:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Microphone Access Denied',
-        });
-      }
+    }, [isCallActive, user, activeCallSessionId, activePersona, router, startRecording, stopRecording, playAudio]);
+    
+    if (!isCallActive || !activePersona) {
+        return <div className="flex h-screen w-full items-center justify-center"><p>Loading call...</p></div>;
     }
-  };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
-      <h1 className="text-4xl font-bold mb-8">Voice Mode</h1>
-      
-      <div className="w-64 h-32 rounded-lg border-2 border-primary flex items-center justify-center mb-8">
-        {isRecording ? (
-            <canvas ref={canvasRef} className="w-full h-full" />
-        ) : (
-            <p className="text-lg font-medium">Idle</p>
-        )}
-      </div>
-      
-      <Button
-        onClick={handleToggleRecording}
-        size="lg"
-        className={cn(
-          'w-24 h-24 rounded-full transition-all',
-          isRecording ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'
-        )}
-      >
-        {isRecording ? <Square className="h-10 w-10" /> : <Mic className="h-10 w-10" />}
-      </Button>
-      <p className="mt-4 text-lg font-medium">{isSpeaking ? "Speaking..." : ""}</p>
-
-      <div className="mt-8 p-4 border rounded-lg w-full max-w-2xl min-h-[100px] bg-card text-card-foreground">
-        <p className="text-sm text-muted-foreground">Transcript:</p>
-        {transcript.map((entry, index) => (
-          <p key={index} className={cn(entry.speaker === 'user' ? 'text-right' : 'text-left')}>
-            <strong>{entry.speaker === 'user' ? 'You:' : 'Shravya AI:'}</strong> {entry.text}
-          </p>
-        ))}
-      </div>
-    </div>
-  );
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
+            <Button variant="ghost" size="icon" className="absolute top-4 left-4" onClick={() => router.push('/chat')}>
+                <ArrowLeft className="h-6 w-6" />
+            </Button>
+            <p className="text-lg text-muted-foreground mb-4">You are speaking with</p>
+            <h1 className="text-4xl font-bold mb-8">{activePersona}</h1>
+            <div className={cn("rounded-full h-48 w-48 border-4 flex items-center justify-center transition-all duration-300", "border-primary/80 scale-105")}>
+                <Mic className={cn("h-20 w-20 transition-all duration-300", "text-primary scale-110")} />
+            </div>
+            <p className="text-muted-foreground mt-8 animate-pulse">Live</p>
+            <div className="absolute bottom-16 flex items-center gap-4">
+                <Button variant={isMuted ? "destructive" : "secondary"} size="lg" className="rounded-full p-4" onClick={toggleMute}>
+                    {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+                </Button>
+                <Button variant="secondary" size="lg" className="rounded-full p-4">
+                    <Volume2 className="h-6 w-6" />
+                </Button>
+                <Button variant="destructive" size="lg" className="rounded-full" onClick={handleEndCall}>
+                    <PhoneOff className="mr-2 h-5 w-5" />
+                    End Call
+                </Button>
+            </div>
+        </div>
+    );
 }

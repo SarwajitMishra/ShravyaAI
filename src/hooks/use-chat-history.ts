@@ -4,13 +4,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc, addDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import type { Persona, AiSession, AiMessage, UserProfile } from '@/lib/types';
+import { type Persona } from '@/lib/types';
+import type { AiSession, AiMessage, UserProfile } from '@/lib/types';
+
 import { useAuth } from '@/components/providers/auth-provider';
 import { app as firebaseApp } from '@/lib/firebase';
 
 const db = getFirestore(firebaseApp);
 const functions = getFunctions(firebaseApp);
-const initialPersona: Persona = 'Friend';
+const initialPersona: Persona = 'Buddy';
 
 // Callable functions
 const ensureProfile = httpsCallable(functions, 'ensureProfile');
@@ -69,7 +71,7 @@ export function useChatHistory() {
       }) as Omit<AiSession, 'messages'>);
       setSessions(userSessions);
       if (querySnapshot.empty) {
-        startNewConversation('Friend');
+        startNewConversation('Buddy');
       }
     });
     return unsubscribe;

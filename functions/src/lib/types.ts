@@ -1,7 +1,7 @@
 
-export type Persona = "Friend" | "Teacher" | "Spiritual" | "Pro" | "Storyteller";
+export type Persona = "Buddy" | "Doctor Dadi" | "Peace Pandit" | "Bug Baba" | "Zindagi Guru";
 export type Mode = Persona;
-export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|"Malayalam"|"English"|"auto";
+export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|"Malayalam"|"English"|"Bhojpuri"|"Gujrati"|"auto";
 
 export type AiProfile = {
   uid: string;

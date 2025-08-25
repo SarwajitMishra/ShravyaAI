@@ -1,11 +1,9 @@
 
 // --- Core AI and Data Types ---
 
-export type Persona = "Friend" | "Teacher" | "Spiritual" | "Pro" |
-"Storyteller";
+export type Persona = "Buddy" | "Doctor Dadi" | "Peace Pandit" | "Bug Baba" | "Zindagi Guru";
 export type Mode = Persona;
-export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|
-"Malayalam"|"English"|"auto";
+export type LangIntent = "Hindi"|"Tamil"|"Telugu"|"Marathi"|"Bengali"|"Malayalam"|"English"|"Bhojpuri"|"Gujrati"|"auto";
 
 // --- Firestore Models ---
 // These are the base structures for documents in Firestore.
@@ -35,6 +33,7 @@ export type AiSession = {
   uid: string;
   title: string;
   mode: Mode;
+  type?: 'voice' | 'text'; 
   languageIntent: LangIntent;
   isPremiumSnapshot?: boolean;
   createdAt: number;

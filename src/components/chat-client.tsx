@@ -1,6 +1,6 @@
-
 "use client";
 
+import { PipCallView } from '@/components/providers/pip-call-view';
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { CameraCapture } from "@/components/camera-capture";
 import { ScreenshotCapture } from "@/components/screenshot-capture";
 import { FileUploader } from '@/components/file-uploader';
-
+import { useCall } from '@/components/providers/call-provider'
 
 import {
   DropdownMenu,
@@ -36,7 +36,9 @@ import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
-import type { Persona, AiMessage, AiSession, LangIntent } from "@/lib/types";
+import type { AiMessage, AiSession, LangIntent } from "@/lib/types";
+import { type Persona } from "@/lib/types";
+
 import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction, SidebarGroup, SidebarGroupLabel, SidebarGroupContent } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,31 +51,38 @@ import { app as firebaseApp } from '@/lib/firebase';
 const functions = getFunctions(firebaseApp);
 const uploadImage = httpsCallable(functions, 'uploadImage');
 
-const personas: Persona[] = ["Friend", "Teacher", "Spiritual", "Pro", "Storyteller"];
+const personas: Persona[] = ["Buddy", "Doctor Dadi", "Peace Pandit", "Bug Baba", "Zindagi Guru"];
 const ENABLE_VOICE_MODE = true; // Feature Flag
 
+
+const uploadFile = httpsCallable(functions, 'uploadFile');
+const transcribeAudio = httpsCallable(functions, 'transcribeAudio'); // Add this line
+
+
 const personaDetails = {
-  Friend: {
-    description: "I'm here to be a supportive and casual companion. Let's chat about anything!",
-    prompts: ["Let's brainstorm some ideas", "Give me some encouragement", "Tell me a fun fact"],
+  'Buddy': {
+    description: "I'm your ultimate childhood best friend. Ready for some fun, gentle roasting, and nostalgia?",
+    prompts: ["Roast me like we’re still in school.", "Give me the ultimate excuse for being late.", "Yaar, life mein tension bahut hai"],
   },
-  Teacher: {
-    description: "I can help you learn and understand new things. Ask me a question!",
-    prompts: ["Explain a complex topic simply", "Help me with my homework", "What's the history of..."],
+  'Doctor Dadi': {
+    description: "I'm Doctor Dadi, here with a mix of modern health advice and timeless desi remedies. Batao beta, kya pareshani hai?",
+    prompts: ["I have a headache, what should I do?", "Give me tips for better sleep", "How to stay healthy in winter?"],
   },
-  Spiritual: {
-    description: "I can offer guidance and reflections for a moment of calm. How are you feeling?",
-    prompts: ["Give me a mindfulness exercise", "Offer a new perspective on...", "Share a piece of wisdom"],
+  'Peace Pandit': {
+    description: "I am Peace Pandit, here to help you find calm in the chaos. Let's take a deep breath and begin.",
+    prompts: ["I'm feeling stressed about work", "Give me a simple meditation exercise", "Give me a mantra for positive thinking."],
   },
-  Pro: {
-    description: "I provide concise, factual, and data-driven answers. I can also search the web.",
-    prompts: ["Summarize this article for me", "What are today's headlines?", "Help me code a function that..."],
+  'Bug Baba': {
+    description: "I am Bug Baba, the quirky guru of code. Tell me about the bug that's troubling you, and we shall find enlightenment... or a missing semicolon.",
+    prompts: ["Why is my code not working?", "Debug this error like a baba: <paste error>", "Explain Git in the style of Bollywood drama."],
   },
-  Storyteller: {
-    description: "I can weave stories and make conversations more fun. What should we create a story about?",
-    prompts: ["Tell me a bedtime story", "Make up a story about...", "Turn this concept into a narrative"],
+  'Zindagi Guru': {
+    description: "I am Zindagi Guru, here to inspire you with a mix of motivation and philosophy. What challenge are you facing today?",
+    prompts: ["Motivate me like a cricket coach before finals.", "Tell me a story of someone who never gave up.", "How to build self-discipline?"],
   },
 };
+
+
 
 const guestMessageThresholds = [10, 100, 1000];
 
@@ -101,6 +110,7 @@ const greetings: { [locale: string]: { morning: string; afternoon: string; eveni
 
 export function ChatClient() {
   const { user, loading, logout } = useAuth();
+  const { isCallActive, activeCallSessionId,startCall  } = useCall();
   const isLoggedIn = !!user;
   const isGuest = user?.isAnonymous === true;
   const { toast } = useToast();
@@ -165,6 +175,13 @@ export function ChatClient() {
     }
   };
 
+
+  const handleCallBack = (session: Omit<AiSession, 'messages'>) => {
+    // We use query parameters to pass the call details to the voice page
+    router.push(`/voice?sessionId=${session.id}&persona=${session.mode}`);
+  };
+
+
   useEffect(() => {
     scrollToBottom();
   }, [activeConversation?.messages, isPending]);
@@ -189,6 +206,14 @@ export function ChatClient() {
       }
     }
   }, [isGuest, activeConversation?.messages]);
+
+  useEffect(() => {
+    // If a call is active and we have the session ID, switch to it.
+    if (isCallActive && activeCallSessionId) {
+      setActiveConversationId(activeCallSessionId);
+    }
+  }, [isCallActive, activeCallSessionId, setActiveConversationId]);
+
 
   const handleGuestPromptDismiss = () => {
     const newDismissals = guestPromptDismissals + 1;
@@ -234,6 +259,14 @@ const handleFileUpload = async (files: File[]) => {
     setInput("");
     setStagedImageUrls([]);
     setStagedDocumentUrls([]); // Add this line
+  };
+
+  const handleStartCall = () => {
+    if (activeConversation) {
+      // This sets the global state and tells the voice page what to do
+      startCall(activeConversation.id, activeConversation.mode);
+      router.push('/voice');
+    }
   };
 
   const handleRemoveStagedImage = (index: number) => {
@@ -308,10 +341,30 @@ const handleFileUpload = async (files: File[]) => {
           reader.readAsDataURL(audioBlob);
           reader.onloadend = async () => {
             const base64Audio = reader.result as string;
-            setInput("Transcribing audio, please wait...");
-            // TODO: Replace with a call to the new transcribeAudio Cloud Function
-            setInput("Audio transcription not implemented yet.");
-          };
+            setInput("Transcribing, please wait..."); // Let the user know we're working
+        
+            try {
+                const langIntent = activeConversation?.languageIntent || 'auto';
+                const conversationHistory = activeConversation?.messages
+                  .slice(-1)
+                  .map(msg => msg.content) || [];
+                
+                const result: any = await transcribeAudio({
+                  audioData: base64Audio,
+                  langIntent: langIntent,
+                  conversationHistory: conversationHistory, 
+              });
+              setInput(result.data.transcription);
+            } catch (error) {
+                console.error("Error transcribing audio:", error);
+                toast({
+                    variant: "destructive",
+                    title: "Transcription Failed",
+                    description: "Could not process the audio. Please try again.",
+                });
+                setInput(""); // Clear the input on error
+            }
+        };
           stream.getTracks().forEach(track => track.stop());
         });
 
@@ -383,14 +436,17 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
   
   const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0;
 
-  const groupedConversations = conversations?.reduce((acc, convo) => {
-    const persona = convo.mode || 'Friend';
+const chatHistory = conversations?.filter(c => c.type !== 'voice');
+const callHistory = conversations?.filter(c => c.type === 'voice');
+
+const groupedChats = chatHistory?.reduce((acc, convo) => {
+    const persona = convo.mode || 'Buddy';
     if (!acc[persona]) {
       acc[persona] = [];
     }
     acc[persona].push(convo);
     return acc;
-  }, {} as Record<Persona, (Omit<AiSession, 'messages'>)[]>);
+}, {} as Record<Persona, (Omit<AiSession, 'messages'>)[]>);
 
   if (loading) {
     return (
@@ -445,7 +501,6 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
 
   return (
     <div className="flex h-screen w-full bg-background">
-
         <CameraCapture open={cameraOpen} onOpenChange={setCameraOpen} onCapture={(dataUrl) => handleCapture(dataUrl, 'photo')} />
         <ScreenshotCapture 
             open={screenshotOpen} 
@@ -556,7 +611,7 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
                         </div>
                         <ScrollArea className="h-[calc(100vh-200px)]">
                             <SidebarMenu>
-                            {groupedConversations && Object.entries(groupedConversations).map(([persona, convos]) => (
+                            {groupedChats && Object.entries(groupedChats).map(([persona, convos]) => (
                                 <SidebarGroup key={persona}>
                                     <SidebarGroupLabel>{persona}</SidebarGroupLabel>
                                     <SidebarGroupContent>
@@ -605,6 +660,49 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
                                     </SidebarGroupContent>
                                 </SidebarGroup>
                             ))}
+                              {callHistory && callHistory.length > 0 && (
+        <SidebarGroup>
+            <SidebarGroupLabel>Live Calls</SidebarGroupLabel>
+            <SidebarGroupContent>
+                <SidebarMenu>
+                {callHistory.map((convo) => (
+                    <SidebarMenuItem key={convo.id}>
+                        <SidebarMenuButton 
+                            onClick={() => setActiveConversationId(convo.id)}
+                            isActive={activeConversation?.id === convo.id}
+                            className="justify-start"
+                        >
+                            <span className="truncate min-w-0 flex-1 text-left">
+                                {convo.title}
+                            </span>
+                        </SidebarMenuButton>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <SidebarMenuAction showOnHover>
+                                <MoreHorizontal />
+                              </SidebarMenuAction>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleCallBack(convo)}>
+                                    <Phone className="mr-2 h-4 w-4" />
+                                    <span>Call Back</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
+                                    <Share2 className="mr-2 h-4 w-4" />
+                                    <span>Share</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDeleteClick(convo.id)} className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>Delete</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </SidebarMenuItem>
+                ))}
+                </SidebarMenu>
+            </SidebarGroupContent>
+        </SidebarGroup>
+    )}
                             </SidebarMenu>
                         </ScrollArea>
                     </div>
@@ -727,13 +825,15 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
                         <BrandIcon className="h-12 w-12 text-primary mb-4" />
                         <h2 className="text-2xl font-bold mb-2">{greeting}</h2>
                         <p className="text-muted-foreground mb-6">{personaDetails[activePersona].description}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-md">
-                            {personaDetails[activePersona].prompts.map((prompt, i) => (
-                                <Button key={i} variant="outline" size="sm" onClick={() => handlePromptStarterClick(prompt)}>
-                                    {prompt}
-                                </Button>
-                            ))}
-                        </div>
+
+<div className="flex flex-wrap justify-center gap-3 w-full max-w-md">
+    {personaDetails[activePersona].prompts.map((prompt, i) => (
+        <Button key={i} variant="outline" size="sm" onClick={() => handlePromptStarterClick(prompt)}>
+            {prompt}
+        </Button>
+    ))}
+</div>
+
                     </div>
                 ) : (
                     activeConversation?.messages?.map((message: AiMessage) => (
@@ -805,7 +905,7 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
                             handleSubmit(e);
                             }
                         }}
-                        disabled={isPending}
+                        disabled={isPending || isCallActive}
                     />
                     <div className="absolute top-1/2 -translate-y-1/2 left-3 flex items-center">
                         {isGuest ? (
@@ -853,7 +953,7 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
                             type="submit"
                             size="icon"
                             className="rounded-full w-10 h-10 shrink-0 bg-accent hover:bg-accent/hover"
-                            disabled={isPending || (!input.trim() && stagedImageUrls.length === 0)}
+                            disabled={isPending || (!input.trim() && stagedImageUrls.length === 0 && stagedDocumentUrls.length === 0)}
                         >
                             <Send className="h-5 w-5" />
                         </Button>
@@ -865,6 +965,7 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
             </div>
         </footer>
       </div>
+    <PipCallView />
     </div>
   );
 }
