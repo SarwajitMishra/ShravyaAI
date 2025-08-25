@@ -5,8 +5,8 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 
 type CallContextType = {
   isCallActive: boolean;
-  isPipViewActive: boolean; // Add this line
-  setIsPipViewActive: (isActive: boolean) => void; // Add this line
+  isPipViewActive: boolean;
+  setIsPipViewActive: (isActive: boolean) => void;
   activeCallSessionId: string | null;
   activePersona: string | null;
   isMuted: boolean;
@@ -20,7 +20,7 @@ const CallContext = createContext<CallContextType | undefined>(undefined);
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const [isCallActive, setIsCallActive] = useState(false);
-  const [isPipViewActive, setIsPipViewActive] = useState(false); // Add this line
+  const [isPipViewActive, setIsPipViewActive] = useState(false);
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
   const [activePersona, setActivePersona] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);

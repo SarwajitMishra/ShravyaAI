@@ -11,7 +11,7 @@ import { useCall } from '@/components/providers/call-provider';
 
 export default function VoicePage() {
     const { user } = useAuth();
-    const { isCallActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall } = useCall();
+    const { isCallActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, toggleMute, endCall, forceEndCallRef } = useCall();
     const router = useRouter();
 
     const socketRef = useRef<WebSocket | null>(null);
@@ -21,7 +21,6 @@ export default function VoicePage() {
     // Refs to hold current state values to avoid them being stale in closures
     const isCallActiveRef = useRef(isCallActive);
     const isMutedRef = useRef(isMuted);
-    const isMountedRef = useRef(true);
 
     // Keep refs updated with the latest state
     useEffect(() => {
@@ -98,12 +97,17 @@ export default function VoicePage() {
         router.push('/chat');
     }, [stopRecording, endCall, router]);
 
+    // Assign the end call handler to the ref so it can be called from outside
+    useEffect(() => {
+        forceEndCallRef.current = handleEndCall;
+    }, [handleEndCall, forceEndCallRef]);
+
 
     useEffect(() => {
-        isMountedRef.current = true;
+        const isMountedRef = { current: true };
         setIsPipViewActive(false); // We are on the main voice page, so hide PiP
 
-        if (!isCallActive || !user || !activeCallSessionId || !activePersona) {
+        if (!isCallActive || !user || !activeCallSessionId) {
             router.push('/chat');
             return;
         }
@@ -135,6 +139,7 @@ export default function VoicePage() {
 
             socket.onclose = () => {
                 console.log("WebSocket closed");
+                // Only reconnect if the component is still mounted and the call should be active
                 if (isMountedRef.current && isCallActiveRef.current) {
                     reconnectAttempts++;
                     const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
@@ -160,13 +165,13 @@ export default function VoicePage() {
                 if (socketRef.current.readyState === WebSocket.OPEN) {
                    socketRef.current.send(JSON.stringify({ event: 'stop' }));
                 }
-                socketRef.current.close();
+                socketRef.current.close(1000, "User navigated away"); // Use a normal close code
                 socketRef.current = null;
             }
             stopRecording();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, activeCallSessionId]); 
+    }, [user, activeCallSessionId, activePersona]); 
     
     // This effect handles the case where the call is ended from outside (e.g., PiP view)
     useEffect(() => {
