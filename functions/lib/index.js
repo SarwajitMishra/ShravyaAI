@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.liveVoicePipeline = void 0;
+exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.logCall = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.liveVoicePipeline = void 0;
 const app_1 = require("firebase-admin/app");
 (0, app_1.initializeApp)();
 var voice_pipeline_1 = require("./voice-pipeline");
@@ -447,6 +447,30 @@ exports.uploadFile = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, async 
         throw new https_1.HttpsError("internal", "Failed to upload file.");
     }
 });
+exports.logCall = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
+    }
+    const { uid } = request.auth;
+    const { sessionId, persona, startTime, duration } = request.data;
+    if (!sessionId || !persona || !startTime || duration === undefined) {
+        throw new https_1.HttpsError("invalid-argument", "Missing required fields for logging the call.");
+    }
+    try {
+        const callRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/calls`).doc();
+        await callRef.set({
+            persona,
+            startTime: firestore_1.Timestamp.fromMillis(startTime),
+            duration, // in seconds
+            createdAt: firestore_1.FieldValue.serverTimestamp(),
+        });
+        return { success: true, callId: callRef.id };
+    }
+    catch (error) {
+        logger.error("Error logging call:", error);
+        throw new https_1.HttpsError("internal", "Failed to log call data.");
+    }
+});
 async function _internalPerformWebSearch(query) {
     if (!query)
         return { error: "Missing query." };
@@ -603,3 +627,5 @@ exports.generateTitleForSession = (0, https_1.onCall)({ secrets: ["GEMINI_API_KE
     const title = await _internalGenerateTitle(sessionId, uid);
     return { title };
 });
+
+    
