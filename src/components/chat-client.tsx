@@ -9,6 +9,7 @@ import { CameraCapture } from "@/components/camera-capture";
 import { ScreenshotCapture } from "@/components/screenshot-capture";
 import { FileUploader } from '@/components/file-uploader';
 import { useCall } from '@/components/providers/call-provider'
+import { formatDistanceToNow, format } from 'date-fns';
 
 import {
   DropdownMenu,
@@ -36,7 +37,7 @@ import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
-import type { AiMessage, AiSession, LangIntent } from "@/lib/types";
+import type { AiMessage, AiSession, CallLog, LangIntent } from "@/lib/types";
 import { type Persona } from "@/lib/types";
 
 import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction, SidebarGroup, SidebarGroupLabel, SidebarGroupContent } from "@/components/ui/sidebar";
@@ -108,6 +109,28 @@ const greetings: { [locale: string]: { morning: string; afternoon: string; eveni
   "en-GB": { morning: "Good Morning", afternoon: "Good Afternoon", evening: "Good Evening" },
 };
 
+function formatCallDuration(seconds: number) {
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+}
+
+function formatCallTimestamp(timestamp: number) {
+    const now = new Date();
+    const callDate = new Date(timestamp);
+    const diffDays = (now.getTime() - callDate.getTime()) / (1000 * 3600 * 24);
+
+    if (diffDays < 1 && now.getDate() === callDate.getDate()) {
+        return format(callDate, 'p'); // e.g., 4:30 PM
+    } else if (diffDays < 7) {
+        return format(callDate, 'eee p'); // e.g., Wed 4:30 PM
+    } else {
+        return format(callDate, 'MMM d, yyyy'); // e.g., Aug 23, 2024
+    }
+}
+
+
 export function ChatClient() {
   const { user, loading, logout } = useAuth();
   const { isCallActive, activeCallSessionId,startCall  } = useCall();
@@ -140,6 +163,7 @@ export function ChatClient() {
     activePersona,
     handlePersonaChange,
     regenerateLastMessage,
+    callHistory,
   } = useChatHistory();
 
   const [input, setInput] = useState("");
@@ -173,12 +197,6 @@ export function ChatClient() {
         behavior: "smooth",
       });
     }
-  };
-
-
-  const handleCallBack = (session: Omit<AiSession, 'messages'>) => {
-    // We use query parameters to pass the call details to the voice page
-    router.push(`/voice?sessionId=${session.id}&persona=${session.mode}`);
   };
 
 
@@ -436,8 +454,7 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
   
   const showWelcomeScreen = !activeConversation || activeConversation.messages.length === 0;
 
-const chatHistory = conversations?.filter(c => c.type !== 'voice');
-const callHistory = conversations?.filter(c => c.type === 'voice');
+  const chatHistory = conversations?.filter(c => !c.isArchived);
 
 const groupedChats = chatHistory?.reduce((acc, convo) => {
     const persona = convo.mode || 'Buddy';
@@ -661,48 +678,30 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                 </SidebarGroup>
                             ))}
                               {callHistory && callHistory.length > 0 && (
-        <SidebarGroup>
-            <SidebarGroupLabel>Live Calls</SidebarGroupLabel>
-            <SidebarGroupContent>
-                <SidebarMenu>
-                {callHistory.map((convo) => (
-                    <SidebarMenuItem key={convo.id}>
-                        <SidebarMenuButton 
-                            onClick={() => setActiveConversationId(convo.id)}
-                            isActive={activeConversation?.id === convo.id}
-                            className="justify-start"
-                        >
-                            <span className="truncate min-w-0 flex-1 text-left">
-                                {convo.title}
-                            </span>
-                        </SidebarMenuButton>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <SidebarMenuAction showOnHover>
-                                <MoreHorizontal />
-                              </SidebarMenuAction>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleCallBack(convo)}>
-                                    <Phone className="mr-2 h-4 w-4" />
-                                    <span>Call Back</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => toast({ title: 'Sharing not implemented yet.'})}>
-                                    <Share2 className="mr-2 h-4 w-4" />
-                                    <span>Share</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleDeleteClick(convo.id)} className="text-destructive">
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    <span>Delete</span>
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </SidebarMenuItem>
-                ))}
-                </SidebarMenu>
-            </SidebarGroupContent>
-        </SidebarGroup>
-    )}
+                                <SidebarGroup>
+                                    <SidebarGroupLabel>Live Calls</SidebarGroupLabel>
+                                    <SidebarGroupContent>
+                                        <SidebarMenu>
+                                        {callHistory.map((call) => (
+                                            <SidebarMenuItem key={call.id}>
+                                                <div className="flex flex-col w-full p-2 rounded-md hover:bg-accent/50">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-sm font-medium">{call.persona}</span>
+                                                        <span className="text-xs text-muted-foreground">{formatCallDuration(call.duration)}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center mt-1">
+                                                        <span className="text-xs text-muted-foreground">{formatCallTimestamp(call.startTime)}</span>
+                                                        <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
+                                                            Call Back
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </SidebarMenuItem>
+                                        ))}
+                                        </SidebarMenu>
+                                    </SidebarGroupContent>
+                                </SidebarGroup>
+                            )}
                             </SidebarMenu>
                         </ScrollArea>
                     </div>

@@ -2,10 +2,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc, addDoc } from "firebase/firestore";
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc, addDoc, collectionGroup } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { type Persona } from '@/lib/types';
-import type { AiSession, AiMessage, UserProfile } from '@/lib/types';
+import type { AiSession, AiMessage, UserProfile, CallLog } from '@/lib/types';
 
 import { useAuth } from '@/components/providers/auth-provider';
 import { app as firebaseApp } from '@/lib/firebase';
@@ -28,6 +28,7 @@ export function useChatHistory() {
   const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [callHistory, setCallHistory] = useState<CallLog[]>([]);
 
   
   const activeConversation = sessions.find(s => s.id === activeSessionId);
@@ -47,6 +48,43 @@ export function useChatHistory() {
     });
     return unsubscribe;
   }, [user]);
+
+  // Effect to fetch call history
+  useEffect(() => {
+    if (!user) {
+        setCallHistory([]);
+        return;
+    }
+    const callsQuery = query(
+        collectionGroup(db, 'calls'),
+        // Assuming 'calls' are under 'sessions' which are under 'aiProfiles/{uid}'
+        // A where clause on a parent document field is not directly possible.
+        // We will fetch all and filter client-side, which is feasible for a moderate number of sessions.
+        // For larger scales, a different data model would be needed.
+        orderBy('startTime', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(callsQuery, (snapshot) => {
+        const userCalls: CallLog[] = [];
+        snapshot.forEach(doc => {
+            // path is like: aiProfiles/{uid}/sessions/{sid}/calls/{cid}
+            if (doc.ref.path.startsWith(`aiProfiles/${user.uid}`)) {
+                const data = doc.data();
+                userCalls.push({
+                    id: doc.id,
+                    sessionId: doc.ref.parent.parent!.id,
+                    persona: data.persona,
+                    startTime: data.startTime.toMillis(),
+                    duration: data.duration,
+                });
+            }
+        });
+        setCallHistory(userCalls);
+    });
+
+    return unsubscribe;
+}, [user]);
+
 
   const startNewConversation = useCallback(async (persona: Persona) => {
     if (!user) return;
@@ -253,5 +291,6 @@ export function useChatHistory() {
     renameConversation,
     archiveConversation,
     regenerateLastMessage,
+    callHistory,
   };
 }

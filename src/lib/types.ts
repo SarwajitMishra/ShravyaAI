@@ -64,6 +64,14 @@ export type AiMessage = {
   isPending?: boolean;
 };
 
+export type CallLog = {
+    id: string; // Document ID from the 'calls' sub-collection
+    sessionId: string; // The parent session this call belongs to
+    persona: Persona;
+    startTime: number; // Unix timestamp (ms)
+    duration: number; // in seconds
+};
+
 
 // --- UI-Specific Types ---
 

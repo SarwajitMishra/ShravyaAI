@@ -78,6 +78,13 @@ interface TranscribeAudioRes { transcription: string }
 interface GenerateTitleReq { sessionId: string }
 interface GenerateTitleRes { title: string }
 
+interface LogCallReq {
+    sessionId: string;
+    persona: Persona;
+    startTime: number; // Expecting timestamp from client
+    duration: number; // in seconds
+}
+interface LogCallRes { success: boolean, callId: string }
 
 
 // --- Firebase and Gemini API Initialization ---
@@ -558,6 +565,32 @@ export const uploadFile = onCall<UploadFileReq, Promise<UploadFileRes>>(
   }
 });
 
+export const logCall = onCall<LogCallReq, Promise<LogCallRes>>(async (request) => {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+    }
+    const { uid } = request.auth;
+    const { sessionId, persona, startTime, duration } = request.data;
+
+    if (!sessionId || !persona || !startTime || duration === undefined) {
+        throw new HttpsError("invalid-argument", "Missing required fields for logging the call.");
+    }
+
+    try {
+        const callRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/calls`).doc();
+        await callRef.set({
+            persona,
+            startTime: Timestamp.fromMillis(startTime),
+            duration, // in seconds
+            createdAt: FieldValue.serverTimestamp(),
+        });
+        return { success: true, callId: callRef.id };
+    } catch (error) {
+        logger.error("Error logging call:", error);
+        throw new HttpsError("internal", "Failed to log call data.");
+    }
+});
+
 
 async function _internalPerformWebSearch(query: string): Promise<any> {
   if (!query) return { error: "Missing query." };
@@ -749,4 +782,3 @@ export const generateTitleForSession = onCall<GenerateTitleReq, Promise<Generate
       return { title };
   }
 );
-

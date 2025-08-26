@@ -1,9 +1,12 @@
-
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from './auth-provider';
 import { useRouter } from 'next/navigation';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app as firebaseApp } from '@/lib/firebase';
+import { type Persona } from '@/lib/types';
+
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
@@ -19,6 +22,9 @@ type CallContextType = {
   endCall: () => void;
   toggleMute: () => void;
 };
+
+const functions = getFunctions(firebaseApp);
+const logCall = httpsCallable(functions, 'logCall');
 
 const CallContext = createContext<CallContextType | undefined>(undefined);
 
@@ -41,6 +47,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMutedRef = useRef(isMuted);
+
+  const callStartTimeRef = useRef<number | null>(null);
 
   const isCallActive = connectionStatus === 'connected' || connectionStatus === 'reconnecting';
 
@@ -102,6 +110,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
     
+    if (callStartTimeRef.current && activeCallSessionId && activePersona) {
+        const endTime = Date.now();
+        const duration = Math.round((endTime - callStartTimeRef.current) / 1000); // duration in seconds
+        logCall({
+            sessionId: activeCallSessionId,
+            persona: activePersona as Persona,
+            startTime: callStartTimeRef.current,
+            duration: duration,
+        }).catch(err => console.error("Failed to log call:", err));
+    }
+
+
     if (socketRef.current) {
       if (socketRef.current.readyState === WebSocket.OPEN) {
           socketRef.current.send(JSON.stringify({ event: 'stop' }));
@@ -115,8 +135,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setIsPipViewActive(false);
     setActiveCallSessionId(null);
     setActivePersona(null);
+    callStartTimeRef.current = null;
     if (forceRedirect) router.push('/chat');
-  }, [stopRecording, router]);
+  }, [stopRecording, router, activeCallSessionId, activePersona]);
 
   const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
     if (!user) return;
@@ -172,6 +193,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (isCallActive) return;
 
+    callStartTimeRef.current = Date.now();
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
     setIsPipViewActive(false);
