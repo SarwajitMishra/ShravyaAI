@@ -1,3 +1,4 @@
+
 import { initializeApp } from "firebase-admin/app";
 initializeApp();
 
@@ -91,7 +92,6 @@ interface LogCallRes { success: boolean, callId: string }
 
 const db = getFirestore();
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const speechClient = new SpeechClient();
 
 
 // Initialize with a placeholder if the key is missing during analysis
@@ -682,6 +682,9 @@ export const transcribeAudio = onCall<TranscribeAudioReq, Promise<TranscribeAudi
   }
 
   try {
+      // Lazily initialize clients
+      const speechClient = new SpeechClient();
+      
       const audioBytes = audioData.split(',')[1];
       const config = {
           encoding: 'WEBM_OPUS' as const,
@@ -782,3 +785,5 @@ export const generateTitleForSession = onCall<GenerateTitleReq, Promise<Generate
       return { title };
   }
 );
+
+    

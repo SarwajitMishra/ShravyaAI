@@ -35,9 +35,7 @@ const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
 const db = getFirestore();
 const auth = getAuth(); // Add this line
 const geminiApiKey = process.env.GEMINI_API_KEY!;
-const genAI = new GoogleGenerativeAI(geminiApiKey);
-const speechClient = new SpeechClient();
-const textToSpeechClient = new TextToSpeechClient();
+
 
 // --- WebSocket Server Setup ---
 const wss = new WebSocketServer({noServer: true});
@@ -95,6 +93,12 @@ if (msg.event === "start" && uid && msg.sessionId) {
     // Use an async block to handle the setup sequentially
     (async () => {
         try {
+            // LAZY INITIALIZATION of clients
+            const speechClient = new SpeechClient();
+            const textToSpeechClient = new TextToSpeechClient();
+            const genAI = new GoogleGenerativeAI(geminiApiKey);
+
+
             // 1. Assign sessionRef. It is now guaranteed to be non-null for the rest of this block.
             sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
             logger.info(`Joining call for user ${uid} in session ${sessionId}`);
@@ -208,3 +212,4 @@ export const liveVoicePipeline = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, 
         });
     });
 
+    
