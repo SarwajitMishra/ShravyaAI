@@ -54,7 +54,6 @@ const speech_1 = require("@google-cloud/speech");
 // --- Firebase and Gemini API Initialization ---
 const db = (0, firestore_1.getFirestore)();
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const speechClient = new speech_1.SpeechClient();
 // Initialize with a placeholder if the key is missing during analysis
 let genAI;
 if (geminiApiKey) {
@@ -548,6 +547,8 @@ exports.transcribeAudio = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, a
         throw new https_1.HttpsError("invalid-argument", "Missing required field: audioData.");
     }
     try {
+        // Lazily initialize clients
+        const speechClient = new speech_1.SpeechClient();
         const audioBytes = audioData.split(',')[1];
         const config = {
             encoding: 'WEBM_OPUS',
@@ -627,5 +628,3 @@ exports.generateTitleForSession = (0, https_1.onCall)({ secrets: ["GEMINI_API_KE
     const title = await _internalGenerateTitle(sessionId, uid);
     return { title };
 });
-
-    

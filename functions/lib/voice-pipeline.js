@@ -1,3 +1,4 @@
+
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -60,9 +61,6 @@ const personaVoices = {
 const db = (0, firestore_1.getFirestore)();
 const auth = (0, auth_1.getAuth)(); // Add this line
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
-const speechClient = new speech_1.SpeechClient();
-const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
 // --- WebSocket Server Setup ---
 const wss = new ws_1.WebSocketServer({ noServer: true });
 // --- Core AI Logic ---
@@ -107,6 +105,10 @@ wss.on('connection', (ws, req, uid) => {
             // Use an async block to handle the setup sequentially
             (async () => {
                 try {
+                    // LAZY INITIALIZATION of clients
+                    const speechClient = new speech_1.SpeechClient();
+                    const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
+                    const genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
                     // 1. Assign sessionRef. It is now guaranteed to be non-null for the rest of this block.
                     sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
                     logger.info(`Joining call for user ${uid} in session ${sessionId}`);
