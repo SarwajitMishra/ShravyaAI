@@ -211,5 +211,3 @@ export const liveVoicePipeline = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, 
             req.socket.destroy();
         });
     });
-
-    
