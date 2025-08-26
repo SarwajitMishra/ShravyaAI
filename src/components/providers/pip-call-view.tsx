@@ -1,13 +1,15 @@
 
 "use client";
 
-import { Phone, Mic, MicOff, Volume2, PhoneOff } from 'lucide-react';
+import { Phone, Mic, MicOff, Volume2, PhoneOff, Loader2 } from 'lucide-react';
 import { useCall } from '@/components/providers/call-provider';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
+
 
 export function PipCallView() {
-  const { isPipViewActive, activePersona, isMuted, toggleMute, endCall } = useCall();
+  const { isPipViewActive, connectionStatus, activePersona, isMuted, toggleMute, endCall } = useCall();
 
   if (!isPipViewActive) {
     return null;
@@ -19,12 +21,23 @@ export function PipCallView() {
       endCall();
   };
 
+  const renderStatusIcon = () => {
+    switch(connectionStatus) {
+        case 'connected':
+            return <Phone className="h-5 w-5" />;
+        case 'reconnecting':
+            return <Loader2 className="h-5 w-5 animate-spin" />;
+        default:
+            return <Phone className="h-5 w-5" />;
+    }
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-50 bg-background/80 backdrop-blur-sm rounded-full shadow-lg flex items-center gap-2 p-2 border">
       
       <Link href="/voice" className="flex items-center gap-2 text-primary animate-pulse pr-2">
-        <Phone className="h-5 w-5" />
-        <span className="font-semibold">{activePersona || 'On Call'}</span>
+        {renderStatusIcon()}
+        <span className="font-semibold">{connectionStatus === 'reconnecting' ? 'Reconnecting...' : (activePersona || 'On Call')}</span>
       </Link>
       
       <Button variant="ghost" size="icon" className="rounded-full" onClick={toggleMute}>

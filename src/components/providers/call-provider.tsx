@@ -5,8 +5,11 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { useAuth } from './auth-provider';
 import { useRouter } from 'next/navigation';
 
+type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+
 type CallContextType = {
   isCallActive: boolean;
+  connectionStatus: ConnectionStatus;
   isPipViewActive: boolean;
   setIsPipViewActive: (isActive: boolean) => void;
   activeCallSessionId: string | null;
@@ -19,11 +22,14 @@ type CallContextType = {
 
 const CallContext = createContext<CallContextType | undefined>(undefined);
 
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const router = useRouter();
 
-  const [isCallActive, setIsCallActive] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [isPipViewActive, setIsPipViewActive] = useState(false);
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
   const [activePersona, setActivePersona] = useState<string | null>(null);
@@ -32,23 +38,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const socketRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMutedRef = useRef(isMuted);
+
+  const isCallActive = connectionStatus === 'connected' || connectionStatus === 'reconnecting';
 
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
   const playAudio = useCallback(async (audioBuffer: Buffer) => {
-    if (!audioContextRef.current) {
-        if (typeof window !== 'undefined') {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        }
+    if (!audioContextRef.current && typeof window !== 'undefined') {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
     const audioContext = audioContextRef.current;
     if (!audioContext) return;
 
     try {
-        const buffer = await audioContext.decodeAudioData(audioBuffer.buffer);
+        const buffer = await audioContext.decodeAudioData(audioBuffer.buffer.slice(0)); // Create a copy for safety
         const source = audioContext.createBufferSource();
         source.buffer = buffer;
         source.connect(audioContext.destination);
@@ -59,27 +67,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const stopRecording = useCallback(() => {
-      if (mediaRecorderRef.current?.state === 'recording') {
+      if (mediaRecorderRef.current) {
           mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-          mediaRecorderRef.current.stop();
+          if (mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+          }
           mediaRecorderRef.current = null;
       }
   }, []);
 
   const startRecording = useCallback(async () => {
-    if (mediaRecorderRef.current) {
-        stopRecording();
-    }
+    if (mediaRecorderRef.current) stopRecording();
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true }});
         const newMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
         
         newMediaRecorder.ondataavailable = async (event) => {
             if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMutedRef.current) {
                 const arrayBuffer = await event.data.arrayBuffer();
                 const buffer = Buffer.from(arrayBuffer);
-                const base64Audio = buffer.toString('base64');
-                socketRef.current?.send(JSON.stringify({ event: 'audio', data: base64Audio }));
+                socketRef.current?.send(JSON.stringify({ event: 'audio', data: buffer.toString('base64') }));
             }
         };
         
@@ -87,34 +94,33 @@ export function CallProvider({ children }: { children: ReactNode }) {
         mediaRecorderRef.current = newMediaRecorder;
     } catch (error) {
         console.error("Error accessing microphone:", error);
+        // Consider showing a toast or message to the user
     }
   }, [stopRecording]);
 
-  const endCall = useCallback(() => {
+  const endCall = useCallback((forceRedirect = true) => {
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    retryCountRef.current = 0;
+    
     if (socketRef.current) {
       if (socketRef.current.readyState === WebSocket.OPEN) {
           socketRef.current.send(JSON.stringify({ event: 'stop' }));
       }
+      socketRef.current.onclose = null; // Prevent onclose from firing during manual shutdown
       socketRef.current.close(1000, "Call ended by user");
       socketRef.current = null;
     }
     stopRecording();
-    setIsCallActive(false);
+    setConnectionStatus('disconnected');
     setIsPipViewActive(false);
     setActiveCallSessionId(null);
     setActivePersona(null);
-    router.push('/chat');
+    if (forceRedirect) router.push('/chat');
   }, [stopRecording, router]);
 
-
-  const startCall = useCallback(async (sessionId: string, persona: string) => {
-    if (!user || isCallActive) return;
-
-    setActiveCallSessionId(sessionId);
-    setActivePersona(persona);
-    setIsCallActive(true);
-    setIsPipViewActive(false);
-    router.push('/voice');
+  const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
+    if (!user) return;
+    setConnectionStatus(retryCountRef.current > 0 ? 'reconnecting' : 'connecting');
 
     const token = await user.getIdToken();
     const websocketUrl = `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
@@ -123,37 +129,61 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     socket.onopen = () => {
         console.log("WebSocket connected");
+        retryCountRef.current = 0;
+        setConnectionStatus('connected');
         socket.send(JSON.stringify({ event: 'start', persona: persona, sessionId: sessionId }));
         startRecording();
     };
     
     socket.onmessage = async (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.event === 'audio' && msg.data) {
-            const audioBuffer = Buffer.from(msg.data, 'base64');
-            await playAudio(audioBuffer);
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg.event === 'audio' && msg.data) {
+                const audioBuffer = Buffer.from(msg.data, 'base64');
+                await playAudio(audioBuffer);
+            }
+        } catch (e) {
+            console.error('Error parsing message or playing audio', e)
         }
     };
 
     socket.onclose = () => {
         console.log("WebSocket closed");
-        if (isCallActive) {
-          // If the call was supposed to be active, treat it as an ended call.
-          endCall();
+        stopRecording(); // Stop mic access when connection drops
+        if (retryCountRef.current < MAX_RETRIES) {
+            retryCountRef.current++;
+            const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCountRef.current - 1);
+            console.log(`Connection lost. Reconnecting in ${delay}ms... (Attempt ${retryCountRef.current})`);
+            setConnectionStatus('reconnecting');
+            retryTimeoutRef.current = setTimeout(() => connectToWebSocket(sessionId, persona), delay);
+        } else {
+            console.error("Could not reconnect to the call. Ending.");
+            endCall();
         }
     };
     
     socket.onerror = (error) => {
         console.error("WebSocket error:", error);
-        socket.close();
+        // The onclose event will be fired automatically after an error, triggering the retry logic.
     };
+  }, [user, startRecording, playAudio, endCall]);
 
-  }, [user, isCallActive, startRecording, playAudio, endCall, router]);
+
+  const startCall = useCallback(async (sessionId: string, persona: string) => {
+    if (isCallActive) return;
+
+    setActiveCallSessionId(sessionId);
+    setActivePersona(persona);
+    setIsPipViewActive(false);
+    router.push('/voice');
+    connectToWebSocket(sessionId, persona);
+
+  }, [isCallActive, connectToWebSocket, router]);
 
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
 
   return (
-    <CallContext.Provider value={{ isCallActive, isPipViewActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, startCall, endCall, toggleMute }}>
+    <CallContext.Provider value={{ isCallActive, connectionStatus, isPipViewActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, startCall, endCall, toggleMute }}>
       {children}
     </CallContext.Provider>
   );
