@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect } from 'react';
@@ -64,9 +65,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!audioContext) return;
 
     try {
-        const buffer = await audioContext.decodeAudioData(audioBuffer.buffer.slice(0)); // Create a copy for safety
+        const arrayBuffer = audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength);
+        const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
         const source = audioContext.createBufferSource();
-        source.buffer = buffer;
+        source.buffer = decodedBuffer;
         source.connect(audioContext.destination);
         source.start(0);
     } catch (error) {

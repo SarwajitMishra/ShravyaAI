@@ -1,5 +1,5 @@
 
-import {onRequest} from "firebase-functions/v2/https";
+import {onRequest,onCall, HttpsError} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import {initializeApp, getApps} from "firebase-admin/app";
 import {getFirestore,FieldValue} from "firebase-admin/firestore";
@@ -19,7 +19,8 @@ if (getApps().length === 0) {
 // --- Types ---
 type Persona = 'Buddy' | 'Doctor Dadi' | 'Peace Pandit' | 'Bug Baba' | 'Zindagi Guru';
 
-// functions/src/voice-pipeline.ts
+interface LogCallReq { sessionId: string; persona: Persona; startTime: number; duration: number; }
+interface LogCallRes { success: boolean; callId: string; }
 
 // --- Voice Mapping for Personas ---
 const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
@@ -35,6 +36,10 @@ const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
 const db = getFirestore();
 const auth = getAuth(); // Add this line
 const geminiApiKey = process.env.GEMINI_API_KEY!;
+const genAI = new GoogleGenerativeAI(geminiApiKey);
+const speechClient = new SpeechClient();
+const textToSpeechClient = new TextToSpeechClient();
+
 
 
 // --- WebSocket Server Setup ---
@@ -211,3 +216,27 @@ export const liveVoicePipeline = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, 
             req.socket.destroy();
         });
     });
+
+export const logCall = onCall<LogCallReq, Promise<LogCallRes>>(
+        async (request) => {
+            if (!request.auth) { throw new HttpsError("unauthenticated", "Authentication required."); }
+            const { uid } = request.auth;
+            const { sessionId, persona, startTime, duration } = request.data;
+            if (!sessionId || !persona || !startTime || !duration) {
+                throw new HttpsError("invalid-argument", "Missing required fields.");
+            }
+            try {
+                const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+                const callDocRef = await db.collection(sessionRef.path + '/calls').add({
+                    persona,
+                    startTime: FieldValue.serverTimestamp(),
+                    endTime: FieldValue.serverTimestamp(),
+                    duration
+                });
+                return { success: true, callId: callDocRef.id };
+            } catch (error) {
+                logger.error("Error logging call:", error);
+                throw new HttpsError("internal", "Failed to log call data.");
+            }
+        }
+    );
