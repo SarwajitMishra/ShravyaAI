@@ -252,7 +252,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
 
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (isCallActive) {
-      router.push('/voice');
+      if (pathname !== '/voice') router.push('/voice');
       return;
     };
 
@@ -284,10 +284,10 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     }, 1000);
     
     // Navigate and then connect
-    router.push('/voice');
+    if (pathname !== '/voice') router.push('/voice');
     connectToWebSocket(sessionId, persona);
 
-  }, [isCallActive, connectToWebSocket, router]);
+  }, [isCallActive, connectToWebSocket, router, pathname]);
 
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
 

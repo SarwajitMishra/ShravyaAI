@@ -104,7 +104,7 @@ const greetings: { [locale: string]: { morning: string; afternoon: string; eveni
   "ta-IN": { morning: "வணக்கம்", afternoon: "வணக்கம்", evening: "வணக்கம்" },
   "gu-IN": { morning: "નમસ્તે", afternoon: "નમસ્તે", evening: "નમસ્તે" },
   "kn-IN": { morning: "ನಮಸ್ಕಾರ", afternoon: "ನಮಸ್ಕಾರ", evening: "ನಮಸ್ಕಾರ" },
-  "ml-IN": { morning: "നമസ്കാരം", afternoon: "നമസ്കാരം", evening: "നമസ്കാരം" },
+  "ml-IN": { morning: "നമസ്കാരം", afternoon: "നమస్കാരം", evening: "നమస్കാരം" },
   "pa-IN": { morning: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ", afternoon: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ", evening: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ" },
   "en-US": { morning: "Good Morning", afternoon: "Good Afternoon", evening: "Good Evening" },
   "en-GB": { morning: "Good Morning", afternoon: "Good Afternoon", evening: "Good Evening" },
@@ -131,10 +131,18 @@ function formatCallTimestamp(timestamp: number) {
     }
 }
 
+function formatElapsedTime(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    const paddedSeconds = String(remainingSeconds).padStart(2, '0');
+    return `${paddedMinutes}:${paddedSeconds}`;
+}
+
 
 export function ChatClient() {
   const { user, loading, logout } = useAuth();
-  const { isCallActive, activeCallSessionId,startCall  } = useCall();
+  const { isCallActive, activeCallSessionId, startCall, activePersona: activeCallPersona, elapsedTime } = useCall();
   const isLoggedIn = !!user;
   const isGuest = user?.isAnonymous === true;
   const { toast } = useToast();
@@ -678,27 +686,38 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                     </SidebarGroupContent>
                                 </SidebarGroup>
                             ))}
-                              {callHistory && callHistory.length > 0 && (
+                            {(isCallActive || (callHistory && callHistory.length > 0)) && (
                                 <SidebarGroup>
                                     <SidebarGroupLabel>Live Calls</SidebarGroupLabel>
                                     <SidebarGroupContent>
                                         <SidebarMenu>
-                                        {callHistory.map((call) => (
-                                            <SidebarMenuItem key={call.id}>
-                                                <div className="flex flex-col w-full p-2 rounded-md hover:bg-accent/50">
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-sm font-medium">{call.persona}</span>
-                                                        <span className="text-xs text-muted-foreground">{formatCallDuration(call.duration)}</span>
+                                            {isCallActive && (
+                                                <SidebarMenuItem>
+                                                    <Link href="/voice" className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 w-full">
+                                                        <Phone className="h-4 w-4 text-green-500 animate-pulse" />
+                                                        <div className="flex flex-col flex-1 truncate">
+                                                            <span className="text-sm font-medium truncate">{activeCallPersona}</span>
+                                                            <span className="text-xs text-muted-foreground">{formatElapsedTime(elapsedTime)}</span>
+                                                        </div>
+                                                    </Link>
+                                                </SidebarMenuItem>
+                                            )}
+                                            {callHistory.map((call) => (
+                                                <SidebarMenuItem key={call.id}>
+                                                    <div className="flex flex-col w-full p-2 rounded-md hover:bg-accent/50">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-sm font-medium">{call.persona}</span>
+                                                            <span className="text-xs text-muted-foreground">{formatCallDuration(call.duration)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center mt-1">
+                                                            <span className="text-xs text-muted-foreground">{formatCallTimestamp(call.startTime)}</span>
+                                                            <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
+                                                                Call Back
+                                                            </Button>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex justify-between items-center mt-1">
-                                                        <span className="text-xs text-muted-foreground">{formatCallTimestamp(call.startTime)}</span>
-                                                        <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
-                                                            Call Back
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            </SidebarMenuItem>
-                                        ))}
+                                                </SidebarMenuItem>
+                                            ))}
                                         </SidebarMenu>
                                     </SidebarGroupContent>
                                 </SidebarGroup>
