@@ -1,4 +1,3 @@
-
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -37,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logCall = exports.liveVoicePipeline = void 0;
+exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const app_1 = require("firebase-admin/app");
@@ -65,13 +64,9 @@ const personaVoices = {
 const db = (0, firestore_1.getFirestore)();
 const auth = (0, auth_1.getAuth)(); // Add this line
 const geminiApiKey = process.env.GEMINI_API_KEY;
-// const genAI = new GoogleGenerativeAI(geminiApiKey);
-// const speechClient = new SpeechClient();
-// const textToSpeechClient = new TextToSpeechClient();
 // --- WebSocket Server Setup ---
 const wss = new ws_1.WebSocketServer({ noServer: true });
 // --- Core AI Logic ---
-// functions/src/voice-pipeline.ts
 function getSystemPrompt(persona, transcriptionLanguage) {
     const baseInstruction = `You are a helpful voice assistant powered by Google's Gemini 1.5 model. Your primary goal is to provide a natural, human-like voice response.
     - Keep your sentences short and conversational.
@@ -87,27 +82,6 @@ function getSystemPrompt(persona, transcriptionLanguage) {
     };
     return `${baseInstruction} As ${persona}, ${personaPrompts[persona] || personaPrompts['Buddy']}`;
 }
-// functions/src/voice-pipeline.ts
-// --- ADD THIS NEW HELPER FUNCTION ---
-async function _internalLogCall(uid, sessionId, persona, startTime) {
-    try {
-        const duration = Date.now() - startTime;
-        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-        const callDocRef = await db.collection(sessionRef.path + '/calls').add({
-            persona,
-            startTime: firestore_1.FieldValue.serverTimestamp(),
-            endTime: firestore_1.FieldValue.serverTimestamp(),
-            duration
-        });
-        logger.info(`Call logged for session ${sessionId} with ID ${callDocRef.id}`);
-        return { success: true, callId: callDocRef.id };
-    }
-    catch (error) {
-        logger.error("Error logging call:", error);
-        return { success: false };
-    }
-}
-// Add this new helper function
 const formatHistoryForAI = (history) => {
     const toGeminiTurn = (msg) => {
         const role = (msg.role === 'assistant' || msg.role === 'model') ? 'model' : 'user';
@@ -135,29 +109,17 @@ wss.on('connection', (ws, req, uid) => {
                     const speechClient = new speech_1.SpeechClient();
                     const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
                     const genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
-                    // 1. Assign sessionRef. It is now guaranteed to be non-null for the rest of this block.
+                    // 1. Assign sessionRef.
                     sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-                    await sessionRef.update({ type: 'voice' });
                     logger.info(`Joining call for user ${uid} in session ${sessionId}`);
-                    await db.collection(sessionRef.path + '/messages').add({
-                        role: 'system',
-                        content: 'Live Call Started',
-                        createdAt: firestore_1.FieldValue.serverTimestamp()
-                    });
-                    // 2. Log the start of the call immediately.
-                    const callStartTime = firestore_1.FieldValue.serverTimestamp();
-                    await db.collection(sessionRef.path + '/calls').add({
-                        startTime: callStartTime,
-                        persona: persona,
-                    });
-                    // 3. Load the history for the AI.
+                    // 2. Load the history for the AI.
                     const historySnap = await db.collection(sessionRef.path + '/messages').orderBy('createdAt', 'asc').get();
                     const formattedHistory = formatHistoryForAI(historySnap);
-                    // 4. Start the AI chat session with the history.
+                    // 3. Start the AI chat session with the history.
                     const systemInstruction = getSystemPrompt(persona, 'auto');
                     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest', systemInstruction });
                     chat = model.startChat({ history: formattedHistory });
-                    // 5. Start the audio recognition stream.
+                    // 4. Start the audio recognition stream.
                     recognizeStream = speechClient.streamingRecognize({
                         config: { encoding: 'WEBM_OPUS', sampleRateHertz: 48000, languageCode: 'en-IN', alternativeLanguageCodes: ['hi-IN', 'ta-IN', 'te-IN'] },
                         interimResults: false,
@@ -165,7 +127,6 @@ wss.on('connection', (ws, req, uid) => {
                         .on('error', (err) => logger.error("Speech Recognition Error:", err))
                         .on('data', async (data) => {
                         const transcription = data.results[0]?.alternatives[0]?.transcript;
-                        // We can now safely use sessionRef without checking for null.
                         if (transcription && sessionRef && chat) {
                             await db.collection(sessionRef.path + '/messages').add({
                                 role: 'user', content: transcription, createdAt: firestore_1.FieldValue.serverTimestamp()
@@ -219,11 +180,8 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"]
         res.status(400).send("This endpoint is for WebSocket connections only.");
         return;
     }
-    // 1. Extract and verify the Firebase Auth token from the request URL
     const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token');
     if (!token) {
-        // This is not a formal response, as the socket will be terminated by the server.
-        // It's a necessary check before upgrading the connection.
         req.socket.destroy();
         return;
     }
@@ -239,39 +197,65 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"]
         req.socket.destroy();
     });
 });
-exports.logCall = (0, https_1.onCall)({
-    secrets: ["GEMINI_API_KEY"],
-    cors: [
-        /aishravya\.web\.app$/,
-        /aishravya\.firebaseapp\.com$/,
-        /cloudworkstations\.dev$/
-    ]
-}, async (request) => {
+// --- New Logging Functions ---
+exports.startCallLog = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
-        logger.error('[logCall] Authentication failed: No token provided.');
         throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
     const uid = request.auth.uid;
-    const { sessionId, persona, startTime, duration } = request.data;
-    logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
-    if (!sessionId || !persona || !startTime || !duration || isNaN(duration)) {
-        logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
-        throw new https_1.HttpsError('invalid-argument', 'Missing or invalid required fields.');
+    const { sessionId, persona } = request.data;
+    if (!sessionId || !persona) {
+        throw new https_1.HttpsError('invalid-argument', 'Missing required fields: sessionId or persona.');
     }
     try {
         const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-        const callData = {
+        // Add "Live Call Started" message
+        await db.collection(sessionRef.path + '/messages').add({
+            role: 'system',
+            content: 'Live Call Started',
+            createdAt: firestore_1.FieldValue.serverTimestamp()
+        });
+        // Create the initial call log document
+        const callDocRef = await db.collection(sessionRef.path + '/calls').add({
             persona,
-            startTime: new Date(startTime),
-            duration: Math.round(duration / 1000),
-        };
-        logger.info('[logCall] Writing to Firestore with data:', callData);
-        const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
-        logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
+            startTime: firestore_1.FieldValue.serverTimestamp(),
+            duration: 0, // Initial duration
+        });
+        logger.info(`[startCallLog] Call started and logged for session ${sessionId} with call ID ${callDocRef.id}`);
         return { success: true, callId: callDocRef.id };
     }
     catch (error) {
-        logger.error("[logCall] Error writing to Firestore:", error);
-        throw new https_1.HttpsError('internal', 'Failed to log call data.');
+        logger.error("[startCallLog] Error:", error);
+        throw new https_1.HttpsError('internal', 'Failed to start call log.');
+    }
+});
+exports.endCallLog = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const uid = request.auth.uid;
+    const { sessionId, callId, duration } = request.data;
+    if (!sessionId || !callId || duration === undefined) {
+        throw new https_1.HttpsError('invalid-argument', 'Missing required fields: sessionId, callId, or duration.');
+    }
+    try {
+        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+        const callDocRef = db.doc(`${sessionRef.path}/calls/${callId}`);
+        // Add "Live Call Ended" message
+        await db.collection(sessionRef.path + '/messages').add({
+            role: 'system',
+            content: 'Live Call Ended',
+            createdAt: firestore_1.FieldValue.serverTimestamp()
+        });
+        // Update the call log document with the final duration
+        await callDocRef.update({
+            duration: Math.round(duration), // Ensure duration is an integer
+        });
+        logger.info(`[endCallLog] Call ended and duration updated for call ${callId}`);
+        return { success: true };
+    }
+    catch (error) {
+        logger.error("[endCallLog] Error:", error);
+        throw new https_1.HttpsError('internal', 'Failed to end call log.');
     }
 });

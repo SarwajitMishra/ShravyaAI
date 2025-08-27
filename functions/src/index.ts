@@ -2,7 +2,7 @@
 import { initializeApp } from "firebase-admin/app";
 initializeApp();
 
-export { liveVoicePipeline, logCall } from './voice-pipeline';
+export { liveVoicePipeline, startCallLog, endCallLog } from './voice-pipeline';
 
 import { onCall, onRequest, HttpsError, CallableRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
@@ -749,5 +749,3 @@ export const generateTitleForSession = onCall<GenerateTitleReq, Promise<Generate
       return { title };
   }
 );
-
-    

@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { useAuth } from './auth-provider';
 import { useRouter,usePathname  } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app as firebaseApp, auth as firebaseAuth } from '@/lib/firebase';
+import { app as firebaseApp } from '@/lib/firebase';
 import { type Persona } from '@/lib/types';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
@@ -25,7 +25,9 @@ type CallContextType = {
 };
 
 const functions = getFunctions(firebaseApp);
-const logCallRequest = httpsCallable(functions, 'logCall');
+const startCallLog = httpsCallable(functions, 'startCallLog');
+const endCallLog = httpsCallable(functions, 'endCallLog');
+
 
 const CallContext = createContext<CallContextType | undefined>(undefined);
 
@@ -67,6 +69,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const isMutedRef = useRef(isMuted);
   const callStartTimeRef = useRef<number | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeCallLogIdRef = useRef<string | null>(null);
   
   // A ref to track if the call was intentionally ended by the user or system
   const callEndedIntentionallyRef = useRef(false);
@@ -138,7 +141,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     }
   }, [stopRecording]);
 
-  const endCall = useCallback((forceRedirect = true) => {
+  const endCall = useCallback(async (forceRedirect = true) => {
     callEndedIntentionallyRef.current = true;
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
@@ -156,27 +159,26 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         socketRef.current.close(1000, "Call ended by user");
         socketRef.current = null;
     }
-
-    if (callStartTimeRef.current && activeCallSessionId && activePersona) {
-        const duration = elapsedTime * 1000;
-
+    
+    // Use the call log ID that was saved when the call started
+    if (activeCallLogIdRef.current && activeCallSessionId) {
+        const duration = elapsedTime;
         if (!isNaN(duration) && duration > 0) {
-            const callData = {
-                sessionId: activeCallSessionId,
-                persona: activePersona as Persona,
-                startTime: callStartTimeRef.current,
-                duration: duration,
-            };
-            console.log('[CallProvider] Preparing to log call with data:', callData);
-            logCallRequest(callData).then(result => {
-                console.log('[CallProvider] logCall function succeeded:', result);
-            }).catch(err => {
-                console.error("[CallProvider] logCall function failed:", err);
-            });
+            try {
+                await endCallLog({
+                    callId: activeCallLogIdRef.current,
+                    sessionId: activeCallSessionId,
+                    duration,
+                });
+                console.log('[CallProvider] Successfully logged call end.');
+            } catch(err) {
+                console.error("[CallProvider] endCallLog function failed:", err);
+            }
         } else {
-            console.warn('[CallProvider] Skipping call log due to invalid duration:', duration);
+            console.warn('[CallProvider] Skipping call end log due to invalid duration:', duration);
         }
     }
+
 
     stopRecording();
     setConnectionStatus('disconnected');
@@ -184,9 +186,11 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setActiveCallSessionId(null);
     setActivePersona(null);
     callStartTimeRef.current = null;
+    activeCallLogIdRef.current = null;
     setElapsedTime(0);
+
     if (forceRedirect && pathname !== '/chat') router.push('/chat');
-}, [stopRecording, router, activeCallSessionId, activePersona, pathname, elapsedTime]);
+}, [stopRecording, router, activeCallSessionId, pathname, elapsedTime]);
 
   const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
     if (!user) return;
@@ -249,11 +253,26 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (isCallActive) return;
 
-    callEndedIntentionallyRef.current = false; // Reset the flag for a new call
+    callEndedIntentionallyRef.current = false; 
     callStartTimeRef.current = Date.now();
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
     setIsPipViewActive(false);
+
+    try {
+        const result: any = await startCallLog({ sessionId, persona });
+        if (result.data.callId) {
+            activeCallLogIdRef.current = result.data.callId; // Save the call ID
+            console.log(`[CallProvider] Started call log with ID: ${result.data.callId}`);
+        } else {
+             throw new Error("startCallLog did not return a callId");
+        }
+    } catch (err) {
+        console.error("[CallProvider] startCallLog function failed:", err);
+        // Optionally, show a toast to the user that the call could not be started
+        return; // Abort starting the call
+    }
+
 
     setElapsedTime(0);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);

@@ -36,12 +36,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.logCall = exports.liveVoicePipeline = void 0;
+exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
 const app_1 = require("firebase-admin/app");
 (0, app_1.initializeApp)();
 var voice_pipeline_1 = require("./voice-pipeline");
 Object.defineProperty(exports, "liveVoicePipeline", { enumerable: true, get: function () { return voice_pipeline_1.liveVoicePipeline; } });
-Object.defineProperty(exports, "logCall", { enumerable: true, get: function () { return voice_pipeline_1.logCall; } });
+Object.defineProperty(exports, "startCallLog", { enumerable: true, get: function () { return voice_pipeline_1.startCallLog; } });
+Object.defineProperty(exports, "endCallLog", { enumerable: true, get: function () { return voice_pipeline_1.endCallLog; } });
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
