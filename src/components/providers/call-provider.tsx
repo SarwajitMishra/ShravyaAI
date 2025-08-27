@@ -163,11 +163,11 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     // Use the call log ID that was saved when the call started
     if (activeCallLogIdRef.current && activeCallSessionId) {
         const duration = elapsedTime;
-        if (!isNaN(duration) && duration > 0) {
+        if (!isNaN(duration) && duration >= 0) {
             try {
                 await endCallLog({
-                    callId: activeCallLogIdRef.current,
                     sessionId: activeCallSessionId,
+                    callId: activeCallLogIdRef.current,
                     duration,
                 });
                 console.log('[CallProvider] Successfully logged call end.');
@@ -251,7 +251,10 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   }, [user, startRecording, playAudio, endCall, pathname]);
 
   const startCall = useCallback(async (sessionId: string, persona: string) => {
-    if (isCallActive) return;
+    if (isCallActive) {
+      router.push('/voice');
+      return;
+    };
 
     callEndedIntentionallyRef.current = false; 
     callStartTimeRef.current = Date.now();
@@ -280,6 +283,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         setElapsedTime(prev => prev + 1);
     }, 1000);
     
+    // Navigate and then connect
     router.push('/voice');
     connectToWebSocket(sessionId, persona);
 

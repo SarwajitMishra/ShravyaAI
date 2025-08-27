@@ -31,7 +31,7 @@ export function PipCallView() {
   const renderStatusIcon = () => {
     switch(connectionStatus) {
         case 'connected':
-            return <Phone className="h-5 w-5" />;
+            return <Phone className="h-5 w-5 text-green-500 animate-pulse" />;
         case 'reconnecting':
             return <Loader2 className="h-5 w-5 animate-spin" />;
         default:
@@ -42,7 +42,7 @@ export function PipCallView() {
   return (
     <div className="fixed bottom-6 right-6 z-50 bg-background/80 backdrop-blur-sm rounded-full shadow-lg flex items-center gap-2 p-2 border">
       
-      <Link href="/voice" className="flex items-center gap-2 text-primary animate-pulse pr-2">
+      <Link href="/voice" className="flex items-center gap-2 text-foreground pr-2">
         {renderStatusIcon()}
         <div className="flex flex-col items-start leading-tight">
           <span className="font-semibold text-sm">{connectionStatus === 'reconnecting' ? 'Reconnecting...' : (activePersona || 'On Call')}</span>

@@ -209,7 +209,8 @@ export const startCallLog = onCall(async (request) => {
     try {
         const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
         
-        // Add "Live Call Started" message
+        // Add "Live Call Started" message and set session type
+        await sessionRef.update({ type: 'voice' });
         await db.collection(sessionRef.path + '/messages').add({
             role: 'system',
             content: 'Live Call Started',

@@ -1,3 +1,4 @@
+
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -54,11 +55,11 @@ if ((0, app_1.getApps)().length === 0) {
 }
 // --- Voice Mapping for Personas ---
 const personaVoices = {
-    'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' },
-    'Doctor Dadi': { languageCode: 'en-IN', name: 'en-IN-Wavenet-D' },
-    'Peace Pandit': { languageCode: 'en-IN', name: 'en-IN-Wavenet-C' },
-    'Bug Baba': { languageCode: 'en-IN', name: 'en-IN-Standard-A' },
-    'Zindagi Guru': { languageCode: 'en-IN', name: 'en-IN-Standard-B' },
+    'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' }, // Friendly Male
+    'Doctor Dadi': { languageCode: 'en-IN', name: 'en-IN-Wavenet-D' }, // Warm, mature Female
+    'Peace Pandit': { languageCode: 'en-IN', name: 'en-IN-Wavenet-C' }, // Calm Male
+    'Bug Baba': { languageCode: 'en-IN', name: 'en-IN-Standard-A' }, // Clear, slightly older Female voice to be quirky
+    'Zindagi Guru': { languageCode: 'en-IN', name: 'en-IN-Standard-B' }, // Energetic Male
 };
 // --- Firebase and Google Cloud Client Initialization ---
 const db = (0, firestore_1.getFirestore)();
@@ -209,7 +210,8 @@ exports.startCallLog = (0, https_1.onCall)(async (request) => {
     }
     try {
         const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-        // Add "Live Call Started" message
+        // Add "Live Call Started" message and set session type
+        await sessionRef.update({ type: 'voice' });
         await db.collection(sessionRef.path + '/messages').add({
             role: 'system',
             content: 'Live Call Started',
