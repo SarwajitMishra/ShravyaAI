@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { useAuth } from './auth-provider';
 import { useRouter,usePathname  } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app as firebaseApp } from '@/lib/firebase';
+import { app as firebaseApp, auth as firebaseAuth } from '@/lib/firebase';
 import { type Persona } from '@/lib/types';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
@@ -24,7 +24,7 @@ type CallContextType = {
 };
 
 const functions = getFunctions(firebaseApp);
-const logCall = httpsCallable(functions, 'logCall');
+const logCallRequest = httpsCallable(functions, 'logCall');
 
 const CallContext = createContext<CallContextType | undefined>(undefined);
 
@@ -161,7 +161,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         duration: duration,
       };
       console.log('[CallProvider] Preparing to log call with data:', callData);
-      logCall(callData).then(result => {
+      logCallRequest(callData).then(result => {
         console.log('[CallProvider] logCall function succeeded:', result);
       }).catch(err => {
         console.error("[CallProvider] logCall function failed:", err);
@@ -271,5 +271,3 @@ export function useCall() {
   }
   return context;
 }
-
-    

@@ -33,6 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.logCall = exports.liveVoicePipeline = void 0;
 const https_1 = require("firebase-functions/v2/https");
@@ -44,6 +47,8 @@ const speech_1 = require("@google-cloud/speech");
 const text_to_speech_1 = require("@google-cloud/text-to-speech");
 const ws_1 = require("ws");
 const auth_1 = require("firebase-admin/auth");
+const cors_1 = __importDefault(require("cors"));
+const corsHandler = (0, cors_1.default)({ origin: true });
 // --- Safe Firebase Initialization ---
 if ((0, app_1.getApps)().length === 0) {
     (0, app_1.initializeApp)();
@@ -228,35 +233,47 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"]
         req.socket.destroy();
     });
 });
-exports.logCall = (0, https_1.onCall)(async (request) => {
-    logger.info('[logCall] Function invoked.');
-    if (!request.auth) {
-        logger.error("[logCall] Authentication failed: request.auth is missing.");
-        throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
-    const { uid } = request.auth;
-    const { sessionId, persona, startTime, duration } = request.data;
-    logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
-    if (!sessionId || !persona || !startTime || !duration) {
-        logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
-        throw new https_1.HttpsError("invalid-argument", "Missing required fields.");
-    }
-    try {
-        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-        const callData = {
-            persona,
-            startTime: new Date(startTime),
-            duration: Math.round(duration / 1000), // Convert ms to seconds
-        };
-        logger.info('[logCall] Writing to Firestore with data:', callData);
-        const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
-        logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
-        return { success: true, callId: callDocRef.id };
-    }
-    catch (error) {
-        logger.error("[logCall] Error writing to Firestore:", error);
-        throw new https_1.HttpsError("internal", "Failed to log call data.");
-    }
+exports.logCall = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"] }, (req, res) => {
+    corsHandler(req, res, async () => {
+        logger.info('[logCall] Function invoked with CORS.');
+        const idToken = req.headers.authorization?.split('Bearer ')[1];
+        if (!idToken) {
+            logger.error('[logCall] Authentication failed: No token provided.');
+            res.status(403).send('Unauthorized');
+            return;
+        }
+        let decodedToken;
+        try {
+            decodedToken = await auth.verifyIdToken(idToken);
+        }
+        catch (error) {
+            logger.error("[logCall] Authentication failed: Invalid token.", error);
+            res.status(403).send('Unauthorized');
+            return;
+        }
+        const uid = decodedToken.uid;
+        const { sessionId, persona, startTime, duration } = req.body.data;
+        logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
+        if (!sessionId || !persona || !startTime || !duration) {
+            logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
+            res.status(400).send({ error: 'Missing required fields.' });
+            return;
+        }
+        try {
+            const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+            const callData = {
+                persona,
+                startTime: new Date(startTime),
+                duration: Math.round(duration / 1000),
+            };
+            logger.info('[logCall] Writing to Firestore with data:', callData);
+            const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
+            logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
+            res.status(200).send({ data: { success: true, callId: callDocRef.id } });
+        }
+        catch (error) {
+            logger.error("[logCall] Error writing to Firestore:", error);
+            res.status(500).send({ error: 'Failed to log call data.' });
+        }
+    });
 });
-
-    
