@@ -19,10 +19,10 @@ import * as http from 'http';
 import https from 'https';
 import { SpeechClient } from '@google-cloud/speech';
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
+import { type Persona } from '@/lib/types';
 
 
 // --- Types ---
-type Persona = 'Buddy' | 'Doctor Dadi' | 'Peace Pandit' | 'Bug Baba' | 'Zindagi Guru';
 type LangIntent = 'auto' | 'hi' | 'en' | 'ta' | 'te' | 'mr' | 'bn' | 'ml' | 'hinglish';
 type UserTier = 'free' | 'pro';
 
@@ -356,17 +356,13 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
         return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
       }
   
-      // functions/src/index.ts
-
-      // functions/src/index.ts
-
       try {
         // --- 4) Send to AI and Handle Tool Calling ---
         const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
             systemInstruction,
-            tools: [webSearchTool], // This was already correct, but for clarity
+            tools: [webSearchTool],
         });
 
         const chat = generativeModel.startChat({ history: chatHistory });
@@ -383,22 +379,24 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
         const initialResult = await chat.sendMessage(messagePayload);
         let finalResponse = initialResult.response;
 
-        // FIX: Call functionCalls as a method with ()
         const functionCalls = finalResponse.functionCalls(); 
         if (functionCalls && functionCalls.length > 0) {
             const call = functionCalls[0];
-            
-            // FIX: Add a type assertion to tell TypeScript what 'args' contains
             const args = call.args as { query?: string };
 
             if (call.name === 'performWebSearch' && args.query) {
                 const searchResults = await _internalPerformWebSearch(args.query);
-
+                
+                // This is the corrected structure for the function response.
+                // The response part must be an array of `Part` objects.
                 const toolResponseResult = await chat.sendMessage([
                     {
                         functionResponse: {
                             name: 'performWebSearch',
-                            response: { name: 'performWebSearch', content: searchResults },
+                            response: {
+                                name: 'performWebSearch', // The tool name is repeated here
+                                content: searchResults,
+                            },
                         },
                     },
                 ]);
@@ -793,7 +791,8 @@ export const textToSpeech = onCall(async (request) => {
   // Log the entire incoming data payload for debugging
   logger.info("[Server] textToSpeech function called with data:", JSON.stringify(request.data));
 
-  const { text, persona } = request.data;
+  const { text, persona } = request.data as { text?: string; persona?: Persona };
+
 
   // Log the destructured variables to see if they are correct
   logger.info(`[Server] Destructured text: ${text}, Destructured persona: ${persona}`);
@@ -807,7 +806,7 @@ export const textToSpeech = onCall(async (request) => {
 
   try {
     const client = new TextToSpeechClient();
-    const selectedVoice = personaVoices[persona as Persona] || personaVoices['Buddy'];
+    const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
 
     const ttsRequest = {
       input: { text },
