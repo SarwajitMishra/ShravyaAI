@@ -247,34 +247,28 @@ export const liveVoicePipeline = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, 
         });
     });
 
-export const logCall = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, res) => {
-    corsHandler(req, res, async () => {
-        logger.info('[logCall] Function invoked with CORS.');
-
-        const idToken = req.headers.authorization?.split('Bearer ')[1];
-        if (!idToken) {
+export const logCall = onCall<LogCallReq, Promise<LogCallRes>>(
+    { 
+        secrets: ["GEMINI_API_KEY"],
+        cors: [
+            /aishravya\.web\.app$/, 
+            /aishravya\.firebaseapp\.com$/,
+            /cloudworkstations\.dev$/
+        ]
+    },
+    async (request) => {
+        if (!request.auth) {
             logger.error('[logCall] Authentication failed: No token provided.');
-            res.status(403).send('Unauthorized');
-            return;
-        }
-
-        let decodedToken;
-        try {
-            decodedToken = await auth.verifyIdToken(idToken);
-        } catch (error) {
-            logger.error("[logCall] Authentication failed: Invalid token.", error);
-            res.status(403).send('Unauthorized');
-            return;
+            throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
         }
         
-        const uid = decodedToken.uid;
-        const { sessionId, persona, startTime, duration } = req.body.data;
+        const uid = request.auth.uid;
+        const { sessionId, persona, startTime, duration } = request.data;
         logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
 
-        if (!sessionId || !persona || !startTime || !duration) {
+        if (!sessionId || !persona || !startTime || !duration || isNaN(duration)) {
             logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
-            res.status(400).send({ error: 'Missing required fields.' });
-            return;
+            throw new HttpsError('invalid-argument', 'Missing or invalid required fields.');
         }
 
         try {
@@ -289,12 +283,10 @@ export const logCall = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, res) => {
             const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
             logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
             
-            res.status(200).send({ data: { success: true, callId: callDocRef.id } });
+            return { success: true, callId: callDocRef.id };
         } catch (error) {
             logger.error("[logCall] Error writing to Firestore:", error);
-            res.status(500).send({ error: 'Failed to log call data.' });
+            throw new HttpsError('internal', 'Failed to log call data.');
         }
-    });
-});
-
-    
+    }
+);

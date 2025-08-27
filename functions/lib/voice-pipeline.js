@@ -55,11 +55,11 @@ if ((0, app_1.getApps)().length === 0) {
 }
 // --- Voice Mapping for Personas ---
 const personaVoices = {
-    'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' }, // Friendly Male
-    'Doctor Dadi': { languageCode: 'en-IN', name: 'en-IN-Wavenet-D' }, // Warm, mature Female
-    'Peace Pandit': { languageCode: 'en-IN', name: 'en-IN-Wavenet-C' }, // Calm Male
-    'Bug Baba': { languageCode: 'en-IN', name: 'en-IN-Standard-A' }, // Clear, slightly older Female voice to be quirky
-    'Zindagi Guru': { languageCode: 'en-IN', name: 'en-IN-Standard-B' }, // Energetic Male
+    'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' },
+    'Doctor Dadi': { languageCode: 'en-IN', name: 'en-IN-Wavenet-D' },
+    'Peace Pandit': { languageCode: 'en-IN', name: 'en-IN-Wavenet-C' },
+    'Bug Baba': { languageCode: 'en-IN', name: 'en-IN-Standard-A' },
+    'Zindagi Guru': { languageCode: 'en-IN', name: 'en-IN-Standard-B' },
 };
 // --- Firebase and Google Cloud Client Initialization ---
 const db = (0, firestore_1.getFirestore)();
@@ -239,49 +239,39 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"]
         req.socket.destroy();
     });
 });
-exports.logCall = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"] }, (req, res) => {
-    corsHandler(req, res, async () => {
-        logger.info('[logCall] Function invoked with CORS.');
-        const idToken = req.headers.authorization?.split('Bearer ')[1];
-        if (!idToken) {
-            logger.error('[logCall] Authentication failed: No token provided.');
-            res.status(403).send('Unauthorized');
-            return;
-        }
-        let decodedToken;
-        try {
-            decodedToken = await auth.verifyIdToken(idToken);
-        }
-        catch (error) {
-            logger.error("[logCall] Authentication failed: Invalid token.", error);
-            res.status(403).send('Unauthorized');
-            return;
-        }
-        const uid = decodedToken.uid;
-        const { sessionId, persona, startTime, duration } = req.body.data;
-        logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
-        if (!sessionId || !persona || !startTime || !duration) {
-            logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
-            res.status(400).send({ error: 'Missing required fields.' });
-            return;
-        }
-        try {
-            const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-            const callData = {
-                persona,
-                startTime: new Date(startTime),
-                duration: Math.round(duration / 1000),
-            };
-            logger.info('[logCall] Writing to Firestore with data:', callData);
-            const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
-            logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
-            res.status(200).send({ data: { success: true, callId: callDocRef.id } });
-        }
-        catch (error) {
-            logger.error("[logCall] Error writing to Firestore:", error);
-            res.status(500).send({ error: 'Failed to log call data.' });
-        }
-    });
+exports.logCall = (0, https_1.onCall)({
+    secrets: ["GEMINI_API_KEY"],
+    cors: [
+        /aishravya\.web\.app$/,
+        /aishravya\.firebaseapp\.com$/,
+        /cloudworkstations\.dev$/
+    ]
+}, async (request) => {
+    if (!request.auth) {
+        logger.error('[logCall] Authentication failed: No token provided.');
+        throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const uid = request.auth.uid;
+    const { sessionId, persona, startTime, duration } = request.data;
+    logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
+    if (!sessionId || !persona || !startTime || !duration || isNaN(duration)) {
+        logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
+        throw new https_1.HttpsError('invalid-argument', 'Missing or invalid required fields.');
+    }
+    try {
+        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+        const callData = {
+            persona,
+            startTime: new Date(startTime),
+            duration: Math.round(duration / 1000),
+        };
+        logger.info('[logCall] Writing to Firestore with data:', callData);
+        const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
+        logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
+        return { success: true, callId: callDocRef.id };
+    }
+    catch (error) {
+        logger.error("[logCall] Error writing to Firestore:", error);
+        throw new https_1.HttpsError('internal', 'Failed to log call data.');
+    }
 });
-
-    
