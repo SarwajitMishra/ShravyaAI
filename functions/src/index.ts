@@ -752,7 +752,7 @@ export const generateTitleForSession = onCall<GenerateTitleReq, Promise<Generate
 );
 
 
-export const updateMessageFeedback = onCall(async (request) => {
+export const updateMessageFeedback = onCall(async (request: CallableRequest<{sessionId: string, messageId: string, feedback: 'liked' | 'disliked'}>) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
   }
@@ -783,7 +783,7 @@ const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
 };
 
 
-export const textToSpeech = onCall(async (request) => {
+export const textToSpeech = onCall(async (request: CallableRequest<{text: string, persona: Persona}>) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
   }
@@ -794,7 +794,7 @@ export const textToSpeech = onCall(async (request) => {
 
   try {
     const client = new TextToSpeechClient();
-    const selectedVoice = personaVoices[persona as Persona] || personaVoices['Buddy'];
+    const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
 
     const ttsRequest = {
       input: { text },
@@ -814,3 +814,5 @@ export const textToSpeech = onCall(async (request) => {
     throw new HttpsError("internal", "Failed to process text-to-speech request.");
   }
 });
+
+    
