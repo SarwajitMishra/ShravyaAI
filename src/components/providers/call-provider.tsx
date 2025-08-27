@@ -62,8 +62,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMutedRef = useRef(isMuted);
-
   const callStartTimeRef = useRef<number | null>(null);
+  
+  // A ref to track if the call was intentionally ended by the user or system
+  const callEndedIntentionallyRef = useRef(false);
 
   const isCallActive = connectionStatus === 'connected' || connectionStatus === 'reconnecting';
 
@@ -133,6 +135,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   }, [stopRecording]);
 
   const endCall = useCallback((forceRedirect = true) => {
+    callEndedIntentionallyRef.current = true; // Mark that the call was ended on purpose
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
 
@@ -171,7 +174,8 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setConnectionStatus(retryCountRef.current > 0 ? 'reconnecting' : 'connecting');
 
     const token = await user.getIdToken();
-    const websocketUrl = `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
+    // Fallback to a development URL if needed
+    const websocketUrl = process.env.NEXT_PUBLIC_VOICE_PIPELINE_URL || `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
     const socket = new WebSocket(websocketUrl);
     socketRef.current = socket;
 
@@ -196,7 +200,13 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     };
 
     socket.onclose = () => {
-      console.log("WebSocket closed");
+        // If the call was intentionally ended, do nothing further.
+        if (callEndedIntentionallyRef.current) {
+            console.log("WebSocket closed intentionally.");
+            return;
+        }
+
+      console.log("WebSocket closed unexpectedly");
       stopRecording(); // Stop mic access when connection drops
       if (retryCountRef.current < MAX_RETRIES) {
         retryCountRef.current++;
@@ -220,6 +230,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (isCallActive) return;
 
+    callEndedIntentionallyRef.current = false; // Reset the flag for a new call
     callStartTimeRef.current = Date.now();
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
