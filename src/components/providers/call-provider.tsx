@@ -21,6 +21,7 @@ type CallContextType = {
   startCall: (sessionId: string, persona: string) => void;
   endCall: () => void;
   toggleMute: () => void;
+  elapsedTime: number;
 };
 
 const functions = getFunctions(firebaseApp);
@@ -56,6 +57,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
   const [activePersona, setActivePersona] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   const socketRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -64,6 +66,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMutedRef = useRef(isMuted);
   const callStartTimeRef = useRef<number | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // A ref to track if the call was intentionally ended by the user or system
   const callEndedIntentionallyRef = useRef(false);
@@ -141,6 +144,11 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
 
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
     if (socketRef.current) {
         if (socketRef.current.readyState === WebSocket.OPEN) {
             console.log('[CallProvider] Sending stop event to WebSocket.');
@@ -152,8 +160,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     }
 
     if (callStartTimeRef.current && activeCallSessionId && activePersona) {
-      const endTime = Date.now();
-      const duration = endTime - callStartTimeRef.current;
+      const duration = elapsedTime * 1000;
 
       // FIX: Add validation to prevent logging invalid durations
       if (!isNaN(duration) && duration > 0) {
@@ -187,8 +194,9 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setActiveCallSessionId(null);
     setActivePersona(null);
     callStartTimeRef.current = null;
+    setElapsedTime(0);
     if (forceRedirect && pathname !== '/chat') router.push('/chat');
-  }, [stopRecording, router, activeCallSessionId, activePersona, pathname]);
+  }, [stopRecording, router, activeCallSessionId, activePersona, pathname, elapsedTime]);
 
   const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
     if (!user) return;
@@ -256,6 +264,13 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
     setIsPipViewActive(false);
+
+    setElapsedTime(0);
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = setInterval(() => {
+        setElapsedTime(prev => prev + 1);
+    }, 1000);
+    
     router.push('/voice');
     connectToWebSocket(sessionId, persona);
 
@@ -264,7 +279,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
 
   return (
-    <CallContext.Provider value={{ isCallActive, connectionStatus, isPipViewActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, startCall, endCall, toggleMute }}>
+    <CallContext.Provider value={{ isCallActive, connectionStatus, isPipViewActive, setIsPipViewActive, activeCallSessionId, activePersona, isMuted, startCall, endCall, toggleMute, elapsedTime }}>
       {children}
     </CallContext.Provider>
   );

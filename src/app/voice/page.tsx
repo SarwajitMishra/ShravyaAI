@@ -1,15 +1,23 @@
 
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Mic, PhoneOff, ArrowLeft, MicOff, Volume2, Loader2, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useCall } from '@/components/providers/call-provider';
 
+function formatElapsedTime(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    const paddedSeconds = String(remainingSeconds).padStart(2, '0');
+    return `${paddedMinutes}:${paddedSeconds}`;
+}
+
 export default function VoicePage() {
-    const { isCallActive, connectionStatus, setIsPipViewActive, activePersona, isMuted, toggleMute, endCall } = useCall();
+    const { isCallActive, connectionStatus, setIsPipViewActive, activePersona, isMuted, toggleMute, endCall, elapsedTime } = useCall();
     const router = useRouter();
 
     useEffect(() => {
@@ -41,7 +49,7 @@ export default function VoicePage() {
                         <div className={cn("rounded-full h-48 w-48 border-4 flex items-center justify-center transition-all duration-300", "border-primary/80 scale-105")}>
                             <Mic className={cn("h-20 w-20 transition-all duration-300", "text-primary scale-110")} />
                         </div>
-                        <p className="text-muted-foreground mt-8 animate-pulse">Live</p>
+                        <p className="text-primary font-mono text-xl mt-8 animate-pulse">{formatElapsedTime(elapsedTime)}</p>
                     </>
                 );
             case 'reconnecting':
