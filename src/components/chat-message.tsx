@@ -79,9 +79,13 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
 
   const handleReadAloud = async () => {
     setIsReadingAloud(true);
+    const payload = { text: message.content, persona: message.mode };
+    console.log("[Client] Calling textToSpeech with payload:", payload);
+
     try {
-      const result: any = await textToSpeech({ text: message.content, persona: message.mode });
+      const result: any = await textToSpeech(payload);
       if (result.data && result.data.audioContent) {
+        console.log("[Client] Received audio data from server.");
         const audio = new Audio(`data:audio/mp3;base64,${result.data.audioContent}`);
         audio.play();
         audio.onended = () => setIsReadingAloud(false);
@@ -89,7 +93,7 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
         throw new Error("Audio content not found in response.");
       }
     } catch (error) {
-      console.error("Error reading aloud:", error);
+      console.error("[Client] Error calling textToSpeech function:", error);
       toast({
         variant: "destructive",
         title: "Read Aloud Failed",

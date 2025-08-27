@@ -789,15 +789,15 @@ export const textToSpeech = onCall(async (request) => {
   }
   
   // Log the entire incoming data payload for debugging
-  logger.info("textToSpeech function called with data:", JSON.stringify(request.data));
+  logger.info("[Server] textToSpeech function called with data:", JSON.stringify(request.data));
 
   const { text, persona } = request.data;
 
   // Log the destructured variables to see if they are correct
-  logger.info(`Destructured text: ${text}, Destructured persona: ${persona}`);
+  logger.info(`[Server] Destructured text: ${text}, Destructured persona: ${persona}`);
 
   if (!text || !persona) {
-    logger.error("Validation failed: Missing 'text' or 'persona' in payload.", {
+    logger.error("[Server] Validation failed: Missing 'text' or 'persona' in payload.", {
       receivedData: request.data,
     });
     throw new HttpsError("invalid-argument", "Missing required fields: text or persona.");
@@ -821,7 +821,7 @@ export const textToSpeech = onCall(async (request) => {
       throw new HttpsError("internal", "Failed to generate audio content.");
     }
   } catch (error) {
-    logger.error("Text-to-Speech Error:", error);
+    logger.error("[Server] Text-to-Speech Error:", error);
     throw new HttpsError("internal", "Failed to process text-to-speech request.");
   }
 });
