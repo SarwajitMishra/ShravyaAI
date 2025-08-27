@@ -269,7 +269,6 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
       const generativeModel = genAI.getGenerativeModel({
         model,
         safetySettings,
-        systemInstruction,
       });
   
       async function urlToGenerativePart(url: string) {
