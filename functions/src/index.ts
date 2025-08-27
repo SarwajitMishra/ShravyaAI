@@ -749,3 +749,27 @@ export const generateTitleForSession = onCall<GenerateTitleReq, Promise<Generate
       return { title };
   }
 );
+
+
+export const updateMessageFeedback = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+  }
+  const { uid } = request.auth;
+  const { sessionId, messageId, feedback } = request.data;
+
+  if (!sessionId || !messageId || !['liked', 'disliked'].includes(feedback)) {
+    throw new HttpsError("invalid-argument", "Missing or invalid required fields.");
+  }
+
+  try {
+    const messageRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}/messages/${messageId}`);
+    await messageRef.update({ feedback });
+    return { success: true };
+  } catch (error) {
+    logger.error("Error updating message feedback:", error);
+    throw new HttpsError("internal", "Failed to update feedback.");
+  }
+});
+
+    

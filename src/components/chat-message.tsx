@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Copy, RefreshCw, User, AlertTriangle, Check, FileText, Phone, ThumbsUp, ThumbsDown, Share2, Volume2 } from "lucide-react";
+import { Copy, RefreshCw, User, AlertTriangle, Check, FileText, Phone, ThumbsUp, ThumbsDown, Volume2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DiyaIcon } from "@/components/icons";
 import {
@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import ReactMarkdown from "react-markdown";
 import { useState } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useChatHistory } from "@/hooks/use-chat-history";
+import { textToSpeech } from "@/ai/flows/text-to-speech";
 
 
 interface ChatMessageProps {
@@ -55,6 +57,8 @@ const CodeBlock = ({ className, children }: { className?: string; children: Reac
 
 export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessageProps) {
   const { toast } = useToast();
+  const { activeConversation, submitMessageFeedback } = useChatHistory();
+  const [isReadingAloud, setIsReadingAloud] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -64,12 +68,31 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
     });
   };
 
-  const handleComingSoon = (feature: string) => {
-    toast({
-      title: `${feature} is coming soon!`,
-      description: "We're working on adding this feature.",
-    });
+  const handleFeedback = (feedback: 'liked' | 'disliked') => {
+    if (!activeConversation) return;
+    submitMessageFeedback(activeConversation.id, message.id, feedback);
+  }
+
+  const handleReadAloud = async () => {
+    setIsReadingAloud(true);
+    try {
+      const response = await textToSpeech({ text: message.content });
+      if (response && response.audioData) {
+        const audio = new Audio(`data:audio/wav;base64,${response.audioData}`);
+        audio.play();
+        audio.onended = () => setIsReadingAloud(false);
+      }
+    } catch (error) {
+      console.error("Error reading aloud:", error);
+      toast({
+        variant: "destructive",
+        title: "Read Aloud Failed",
+        description: "Could not play the audio. Please try again.",
+      });
+      setIsReadingAloud(false);
+    }
   };
+
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -182,6 +205,7 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
         )}
         
         {!isUser && !message.isError && (
+          <TooltipProvider>
             <div className="mt-2 flex items-center gap-1 text-muted-foreground">
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -201,37 +225,40 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Read Aloud")}>
-                            <Volume2 className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleReadAloud} disabled={isReadingAloud}>
+                            {isReadingAloud ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent><p>Read Aloud</p></TooltipContent>
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Like")}>
-                            <ThumbsUp className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-7 w-7" 
+                          onClick={() => handleFeedback('liked')}
+                        >
+                            <ThumbsUp className={cn("h-4 w-4", message.feedback === 'liked' && "text-primary fill-primary/20")} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent><p>Like</p></TooltipContent>
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Dislike")}>
-                            <ThumbsDown className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-7 w-7" 
+                          onClick={() => handleFeedback('disliked')}
+                        >
+                            <ThumbsDown className={cn("h-4 w-4", message.feedback === 'disliked' && "text-destructive fill-destructive/20")} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent><p>Dislike</p></TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Share")}>
-                            <Share2 className="h-4 w-4" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Share</p></TooltipContent>
-                </Tooltip>
             </div>
+            </TooltipProvider>
         )}
 
         {message.isError && (
@@ -258,3 +285,5 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
     </div>
   );
 }
+
+    

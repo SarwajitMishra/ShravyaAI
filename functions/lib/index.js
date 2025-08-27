@@ -1,3 +1,4 @@
+
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -36,7 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
+exports.updateMessageFeedback = exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
 const app_1 = require("firebase-admin/app");
 (0, app_1.initializeApp)();
 var voice_pipeline_1 = require("./voice-pipeline");
@@ -605,3 +606,24 @@ exports.generateTitleForSession = (0, https_1.onCall)({ secrets: ["GEMINI_API_KE
     const title = await _internalGenerateTitle(sessionId, uid);
     return { title };
 });
+exports.updateMessageFeedback = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
+    }
+    const { uid } = request.auth;
+    const { sessionId, messageId, feedback } = request.data;
+    if (!sessionId || !messageId || !['liked', 'disliked'].includes(feedback)) {
+        throw new https_1.HttpsError("invalid-argument", "Missing or invalid required fields.");
+    }
+    try {
+        const messageRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}/messages/${messageId}`);
+        await messageRef.update({ feedback });
+        return { success: true };
+    }
+    catch (error) {
+        logger.error("Error updating message feedback:", error);
+        throw new https_1.HttpsError("internal", "Failed to update feedback.");
+    }
+});
+
+    

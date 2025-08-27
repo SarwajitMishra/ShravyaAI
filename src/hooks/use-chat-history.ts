@@ -20,6 +20,8 @@ const createNewSession = httpsCallable(functions, 'createNewSession');
 const updateSession = httpsCallable(functions, 'updateSession');
 const deleteSession = httpsCallable(functions, 'deleteSession');
 const appendUserMessageAndGetResponse = httpsCallable(functions, 'appendUserMessageAndGetResponse');
+const updateMessageFeedback = httpsCallable(functions, 'updateMessageFeedback');
+
 
 export function useChatHistory() {
   const { user, loading } = useAuth();
@@ -287,6 +289,16 @@ export function useChatHistory() {
     await updateSession({ sessionId, updates: { isArchived } });
   }, [user]);
 
+  const submitMessageFeedback = useCallback(async (sessionId: string, messageId: string, feedback: 'liked' | 'disliked') => {
+    if (!user) return;
+    try {
+      await updateMessageFeedback({ sessionId, messageId, feedback });
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      // Optionally, show a toast to the user
+    }
+  }, [user]);
+
   return {
     conversations: sessions.filter(s => !s.isArchived),
     activeConversation: activeConversation ? { ...activeConversation, messages } : undefined,
@@ -302,5 +314,8 @@ export function useChatHistory() {
     archiveConversation,
     regenerateLastMessage,
     callHistory,
+    submitMessageFeedback,
   };
 }
+
+    

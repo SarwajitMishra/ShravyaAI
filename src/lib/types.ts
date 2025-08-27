@@ -57,6 +57,7 @@ export type AiMessage = {
   mode: Mode;
   languageIntent: LangIntent;
   createdAt: number;
+  feedback?: 'liked' | 'disliked'; // New field for feedback
   // Client-side fields
   displayContent?: string;
   isRoman?: boolean;
@@ -76,3 +77,5 @@ export type CallLog = {
 // --- UI-Specific Types ---
 
 export type QuickChipAction = "explain" | "fun" | "steps";
+
+    
