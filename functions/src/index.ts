@@ -783,11 +783,11 @@ const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
 };
 
 
-export const textToSpeech = onCall(async (request: CallableRequest<{text: string, persona: Persona}>) => {
+export const textToSpeech = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
   }
-  const { text, persona } = request.data;
+  const { text, persona } = request.data as {text: string, persona: Persona};
   if (!text || !persona) {
     throw new HttpsError("invalid-argument", "Missing required fields: text or persona.");
   }
