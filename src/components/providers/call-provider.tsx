@@ -74,7 +74,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // A ref to track if the call was intentionally ended by the user or system
   const callEndedIntentionallyRef = useRef(false);
 
-  const isCallActive = connectionStatus === 'connected' || connectionStatus === 'reconnecting';
+  const isCallActive = connectionStatus === 'connected' || connectionStatus === 'reconnecting' || connectionStatus === 'connecting';
 
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -252,7 +252,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
 
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     // If a call is already active, just navigate to the voice page.
-    if (isCallActive) {
+    if (isCallActive && activeCallSessionId === sessionId) {
         if (pathname !== '/voice') {
             router.push('/voice');
         }
@@ -266,11 +266,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setActivePersona(persona);
     setIsPipViewActive(false);
     setConnectionStatus('connecting'); // Explicitly set connecting status
-
-    // Then, perform navigation.
-    if (pathname !== '/voice') {
-        router.push('/voice');
-    }
+    router.push('/voice');
 
     // Log the call start
     try {
@@ -298,7 +294,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     // Finally, connect to the WebSocket
     connectToWebSocket(sessionId, persona);
 
-  }, [isCallActive, connectToWebSocket, router, pathname, endCall]);
+  }, [isCallActive, activeCallSessionId, connectToWebSocket, router, pathname, endCall]);
 
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
 
