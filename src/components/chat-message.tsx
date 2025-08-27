@@ -6,21 +6,14 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Copy, RefreshCw, Languages, User, AlertTriangle, Check, FileText, Phone } from "lucide-react";
+import { Copy, RefreshCw, Languages, User, AlertTriangle, Check, FileText, Phone, ThumbsUp, ThumbsDown, Share2, Volume2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DiyaIcon } from "@/components/icons";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MoreHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 
@@ -68,6 +61,13 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSess
     toast({
       title: "Copied to clipboard!",
       description: "The message has been copied.",
+    });
+  };
+
+  const handleComingSoon = (feature: string) => {
+    toast({
+      title: `${feature} is coming soon!`,
+      description: "We're working on adding this feature.",
     });
   };
 
@@ -122,14 +122,14 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSess
               <Dialog key={index}>
                 <DialogTrigger asChild>
                 <div className="relative w-40 md:w-56 aspect-[4/3] rounded-md overflow-hidden cursor-pointer bg-muted">
-  <Image
-    src={url}
-    alt={`Uploaded image ${index + 1}`}
-    fill
-    sizes="(max-width: 768px) 160px, 224px"
-    className="object-cover"
-  />
-</div>
+                  <Image
+                    src={url}
+                    alt={`Uploaded image ${index + 1}`}
+                    fill
+                    sizes="(max-width: 768px) 160px, 224px"
+                    className="object-cover"
+                  />
+                </div>
        
                 </DialogTrigger>
                 <DialogContent className="max-w-3xl">
@@ -140,26 +140,25 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSess
           </div>
         )}
         {message.documentUrls && message.documentUrls.length > 0 && (
-  <div className="mt-2 space-y-2">
-    {message.documentUrls.map((url, index) => {
-      // This logic creates a clean, readable filename from the long URL
-      const decodedUrl = decodeURIComponent(url);
-      const fileName = decodedUrl.split('/').pop()?.split('?')[0].split('%2F').pop() || 'Document';
-      return (
-        <a 
-          key={index} 
-          href={url} 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          className="flex items-center gap-2 p-2 rounded-md bg-muted hover:bg-muted/80 transition-colors no-underline"
-        >
-          <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
-          <span className="truncate text-sm font-medium text-foreground">{fileName}</span>
-        </a>
-      );
-    })}
-  </div>
-)}
+          <div className="mt-2 space-y-2">
+            {message.documentUrls.map((url, index) => {
+              const decodedUrl = decodeURIComponent(url);
+              const fileName = decodedUrl.split('/').pop()?.split('?')[0].split('%2F').pop() || 'Document';
+              return (
+                <a 
+                  key={index} 
+                  href={url} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="flex items-center gap-2 p-2 rounded-md bg-muted hover:bg-muted/80 transition-colors no-underline"
+                >
+                  <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                  <span className="truncate text-sm font-medium text-foreground">{fileName}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
 
         {isUser ? (
           <p className="m-0 whitespace-pre-wrap">{message.content}</p>
@@ -183,28 +182,28 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSess
         )}
         
         {!isUser && !message.isError && (
-            <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full bg-card hover:bg-card/90">
-                        <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={handleCopy}>
-                            <Copy className="mr-2 h-4 w-4" />
-                            <span>Copy</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onRegenerate(message)}>
-                            <RefreshCw className="mr-2 h-4 w-4" />
-                            <span>Regenerate</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onScriptToggle(message.id)}>
-                            <Languages className="mr-2 h-4 w-4" />
-                            <span>{message.isRoman ? "Show Devanagari" : "Show Roman"}</span>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+            <div className="mt-2 flex items-center gap-1 text-muted-foreground">
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy}>
+                    <Copy className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onRegenerate(message)}>
+                    <RefreshCw className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Read Aloud")}>
+                    <Volume2 className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Like")}>
+                    <ThumbsUp className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Dislike")}>
+                    <ThumbsDown className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Share")}>
+                    <Share2 className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onScriptToggle(message.id)}>
+                    <Languages className="h-4 w-4" />
+                </Button>
             </div>
         )}
 
