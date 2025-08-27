@@ -139,54 +139,44 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   }, [stopRecording]);
 
   const endCall = useCallback((forceRedirect = true) => {
-    console.log('[CallProvider] endCall triggered.');
-    callEndedIntentionallyRef.current = true; // Mark that the call was ended on purpose
+    callEndedIntentionallyRef.current = true;
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
 
     if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
     }
 
     if (socketRef.current) {
         if (socketRef.current.readyState === WebSocket.OPEN) {
-            console.log('[CallProvider] Sending stop event to WebSocket.');
             socketRef.current.send(JSON.stringify({ event: 'stop' }));
         }
-        socketRef.current.onclose = null; // Prevent onclose from firing during manual shutdown
+        socketRef.current.onclose = null;
         socketRef.current.close(1000, "Call ended by user");
         socketRef.current = null;
     }
 
     if (callStartTimeRef.current && activeCallSessionId && activePersona) {
-      const duration = elapsedTime * 1000;
+        const duration = elapsedTime * 1000;
 
-      // FIX: Add validation to prevent logging invalid durations
-      if (!isNaN(duration) && duration > 0) {
-          const callData = {
-              sessionId: activeCallSessionId,
-              persona: activePersona as Persona,
-              startTime: callStartTimeRef.current,
-              duration: duration,
-          };
-          console.log('[CallProvider] Preparing to log call with data:', callData);
-          logCallRequest({data: callData}).then(result => {
-              console.log('[CallProvider] logCall function succeeded:', result);
-          }).catch(err => {
-              console.error("[CallProvider] logCall function failed:", err);
-          });
-      } else {
-          console.warn('[CallProvider] Skipping call log due to invalid duration:', duration);
-      }
-    } else {
-        console.log('[CallProvider] Not logging call, missing required data.', {
-            hasStartTime: !!callStartTimeRef.current,
-            activeCallSessionId,
-            activePersona,
-        });
+        if (!isNaN(duration) && duration > 0) {
+            const callData = {
+                sessionId: activeCallSessionId,
+                persona: activePersona as Persona,
+                startTime: callStartTimeRef.current,
+                duration: duration,
+            };
+            console.log('[CallProvider] Preparing to log call with data:', callData);
+            logCallRequest({ data: callData }).then(result => {
+                console.log('[CallProvider] logCall function succeeded:', result);
+            }).catch(err => {
+                console.error("[CallProvider] logCall function failed:", err);
+            });
+        } else {
+            console.warn('[CallProvider] Skipping call log due to invalid duration:', duration);
+        }
     }
-
 
     stopRecording();
     setConnectionStatus('disconnected');
@@ -196,7 +186,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     callStartTimeRef.current = null;
     setElapsedTime(0);
     if (forceRedirect && pathname !== '/chat') router.push('/chat');
-  }, [stopRecording, router, activeCallSessionId, activePersona, pathname, elapsedTime]);
+}, [stopRecording, router, activeCallSessionId, activePersona, pathname, elapsedTime]);
 
   const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
     if (!user) return;
@@ -292,3 +282,5 @@ export function useCall() {
   }
   return context;
 }
+
+    
