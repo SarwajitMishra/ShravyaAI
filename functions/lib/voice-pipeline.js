@@ -258,7 +258,7 @@ exports.logCall = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"] }, (req, 
         }
         const uid = decodedToken.uid;
         const { sessionId, persona, startTime, duration } = req.body.data;
-        logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
+        logger.info('[logCall] Received data for user:', uid, req.body.data);
         if (!sessionId || !persona || !startTime || !duration) {
             logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
             res.status(400).send({ error: 'Missing required fields.' });

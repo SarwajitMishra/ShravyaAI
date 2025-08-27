@@ -269,7 +269,7 @@ export const logCall = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, res) => {
         
         const uid = decodedToken.uid;
         const { sessionId, persona, startTime, duration } = req.body.data;
-        logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
+        logger.info('[logCall] Received data for user:', uid, req.body.data);
 
         if (!sessionId || !persona || !startTime || !duration) {
             logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
