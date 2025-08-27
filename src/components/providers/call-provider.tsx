@@ -251,21 +251,32 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   }, [user, startRecording, playAudio, endCall, pathname]);
 
   const startCall = useCallback(async (sessionId: string, persona: string) => {
+    // If a call is already active, just navigate to the voice page.
     if (isCallActive) {
-      if (pathname !== '/voice') router.push('/voice');
-      return;
-    };
+        if (pathname !== '/voice') {
+            router.push('/voice');
+        }
+        return;
+    }
 
-    callEndedIntentionallyRef.current = false; 
+    // Set the state immediately to indicate a call is starting.
+    callEndedIntentionallyRef.current = false;
     callStartTimeRef.current = Date.now();
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
     setIsPipViewActive(false);
+    setConnectionStatus('connecting'); // Explicitly set connecting status
 
+    // Then, perform navigation.
+    if (pathname !== '/voice') {
+        router.push('/voice');
+    }
+
+    // Log the call start
     try {
         const result: any = await startCallLog({ sessionId, persona });
         if (result.data.callId) {
-            activeCallLogIdRef.current = result.data.callId; // Save the call ID
+            activeCallLogIdRef.current = result.data.callId;
             console.log(`[CallProvider] Started call log with ID: ${result.data.callId}`);
         } else {
              throw new Error("startCallLog did not return a callId");
@@ -273,21 +284,21 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     } catch (err) {
         console.error("[CallProvider] startCallLog function failed:", err);
         // Optionally, show a toast to the user that the call could not be started
+        endCall(false); // End call without redirecting
         return; // Abort starting the call
     }
 
-
+    // Start the timer
     setElapsedTime(0);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(() => {
         setElapsedTime(prev => prev + 1);
     }, 1000);
     
-    // Navigate and then connect
-    if (pathname !== '/voice') router.push('/voice');
+    // Finally, connect to the WebSocket
     connectToWebSocket(sessionId, persona);
 
-  }, [isCallActive, connectToWebSocket, router, pathname]);
+  }, [isCallActive, connectToWebSocket, router, pathname, endCall]);
 
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
 
