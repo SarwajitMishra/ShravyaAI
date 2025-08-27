@@ -27,7 +27,7 @@ const textToSpeech = httpsCallable(functions, 'textToSpeech');
 
 interface ChatMessageProps {
   message: AiMessage;
-  onRegenerate: (message: AiMessage) => void;
+  onRegenerate: () => void;
   isVoiceSession?: boolean;
 }
 
@@ -223,7 +223,7 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onRegenerate(message)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onRegenerate()}>
                             <RefreshCw className="h-4 w-4" />
                         </Button>
                     </TooltipTrigger>
@@ -269,7 +269,7 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
 
         {message.isError && (
             <div className="mt-4 flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => onRegenerate(message)}>
+                <Button variant="outline" size="sm" onClick={() => onRegenerate()}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     Retry
                 </Button>
@@ -291,4 +291,3 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
     </div>
   );
 }
-

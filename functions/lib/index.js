@@ -1,4 +1,3 @@
-
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -37,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateMessageFeedback = exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
+exports.textToSpeech = exports.updateMessageFeedback = exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
 const app_1 = require("firebase-admin/app");
 (0, app_1.initializeApp)();
 var voice_pipeline_1 = require("./voice-pipeline");
@@ -54,6 +53,7 @@ const crypto = __importStar(require("crypto"));
 const http = __importStar(require("http"));
 const https_2 = __importDefault(require("https"));
 const speech_1 = require("@google-cloud/speech");
+const text_to_speech_1 = require("@google-cloud/text-to-speech");
 // --- Firebase and Gemini API Initialization ---
 const db = (0, firestore_1.getFirestore)();
 const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -625,5 +625,40 @@ exports.updateMessageFeedback = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("internal", "Failed to update feedback.");
     }
 });
-
-    
+// Voice selection for TTS based on persona
+const personaVoices = {
+    'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' },
+    'Doctor Dadi': { languageCode: 'en-IN', name: 'en-IN-Wavenet-D' },
+    'Peace Pandit': { languageCode: 'en-IN', name: 'en-IN-Wavenet-C' },
+    'Bug Baba': { languageCode: 'en-IN', name: 'en-IN-Standard-A' },
+    'Zindagi Guru': { languageCode: 'en-IN', name: 'en-IN-Standard-B' },
+};
+exports.textToSpeech = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
+    }
+    const { text, persona } = request.data;
+    if (!text || !persona) {
+        throw new https_1.HttpsError("invalid-argument", "Missing required fields: text or persona.");
+    }
+    try {
+        const client = new text_to_speech_1.TextToSpeechClient();
+        const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
+        const ttsRequest = {
+            input: { text },
+            voice: selectedVoice,
+            audioConfig: { audioEncoding: 'MP3' },
+        };
+        const [response] = await client.synthesizeSpeech(ttsRequest);
+        if (response.audioContent) {
+            return { audioContent: response.audioContent.toString('base64') };
+        }
+        else {
+            throw new https_1.HttpsError("internal", "Failed to generate audio content.");
+        }
+    }
+    catch (error) {
+        logger.error("Text-to-Speech Error:", error);
+        throw new https_1.HttpsError("internal", "Failed to process text-to-speech request.");
+    }
+});
