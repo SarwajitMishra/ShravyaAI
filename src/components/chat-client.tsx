@@ -10,7 +10,7 @@ import { CameraCapture } from "@/components/camera-capture";
 import { ScreenshotCapture } from "@/components/screenshot-capture";
 import { FileUploader } from '@/components/file-uploader';
 import { useCall } from '@/components/providers/call-provider'
-import { formatDistanceToNow, format } from 'date-fns';
+import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns';
 
 import {
   DropdownMenu,
@@ -474,6 +474,47 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
     return acc;
 }, {} as Record<Persona, (Omit<AiSession, 'messages'>)[]>);
 
+const renderMessagesWithDateSeparators = () => {
+  if (!activeConversation?.messages) return null;
+
+  const messageElements: React.ReactNode[] = [];
+  let lastDate: string | null = null;
+
+  activeConversation.messages.forEach((message, index) => {
+    const messageDate = new Date(message.createdAt);
+    let dateString: string;
+
+    if (isToday(messageDate)) {
+      dateString = "Today";
+    } else if (isYesterday(messageDate)) {
+      dateString = "Yesterday";
+    } else {
+      dateString = format(messageDate, "MMMM d, yyyy");
+    }
+
+    if (dateString !== lastDate) {
+      messageElements.push(
+        <div key={`date-${dateString}`} className="text-center text-xs text-muted-foreground my-4">
+          {dateString}
+        </div>
+      );
+      lastDate = dateString;
+    }
+
+    messageElements.push(
+      <ChatMessage 
+        key={message.id} 
+        message={message} 
+        onRegenerate={() => regenerateLastMessage()} 
+        onScriptToggle={() => { /* Not implemented */ }}
+        isVoiceSession={activeConversation?.type === 'voice'}
+      />
+    );
+  });
+
+  return messageElements;
+};
+
   if (loading) {
     return (
       <div className="flex h-screen w-full bg-background items-center justify-center">
@@ -652,9 +693,6 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                                     <span className="truncate min-w-0 flex-1 text-left">
                                                       {convo.title.replace(`[${persona}] `, '')}
                                                     </span>
-                                                     <span className="text-xs text-muted-foreground">
-                                                        {convo.updatedAt && formatDistanceToNow(new Date(convo.updatedAt), { addSuffix: true })}
-                                                    </span>
                                                 </SidebarMenuButton>
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
@@ -714,7 +752,7 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                                         </div>
                                                         <div className="flex justify-between items-center mt-1">
                                                             <span className="text-xs text-muted-foreground">
-                                                                {call.startTime && formatDistanceToNow(new Date(call.startTime), { addSuffix: true })}
+                                                                {call.startTime && formatCallTimestamp(call.startTime)}
                                                             </span>
                                                             <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
                                                                 Call Back
@@ -860,15 +898,7 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
 
                     </div>
                 ) : (
-                    activeConversation?.messages?.map((message: AiMessage) => (
-                        <ChatMessage 
-                            key={message.id} 
-                            message={message} 
-                            onRegenerate={() => regenerateLastMessage()} 
-                            onScriptToggle={() => { /* Not implemented */ }}
-                            isVoiceSession={activeConversation?.type === 'voice'}
-                        />
-                    ))
+                    renderMessagesWithDateSeparators()
                 )}
                 {isPending && <ThinkingBubble />}
             </div>
@@ -999,3 +1029,5 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
     </div>
   );
 }
+
+    
