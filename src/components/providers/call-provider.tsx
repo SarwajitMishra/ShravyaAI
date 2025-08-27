@@ -154,18 +154,24 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     if (callStartTimeRef.current && activeCallSessionId && activePersona) {
       const endTime = Date.now();
       const duration = endTime - callStartTimeRef.current;
-      const callData = {
-        sessionId: activeCallSessionId,
-        persona: activePersona as Persona,
-        startTime: callStartTimeRef.current,
-        duration: duration,
-      };
-      console.log('[CallProvider] Preparing to log call with data:', callData);
-      logCallRequest({data: callData}).then(result => {
-        console.log('[CallProvider] logCall function succeeded:', result);
-      }).catch(err => {
-        console.error("[CallProvider] logCall function failed:", err);
-      });
+
+      // FIX: Add validation to prevent logging invalid durations
+      if (!isNaN(duration) && duration > 0) {
+          const callData = {
+              sessionId: activeCallSessionId,
+              persona: activePersona as Persona,
+              startTime: callStartTimeRef.current,
+              duration: duration,
+          };
+          console.log('[CallProvider] Preparing to log call with data:', callData);
+          logCallRequest({data: callData}).then(result => {
+              console.log('[CallProvider] logCall function succeeded:', result);
+          }).catch(err => {
+              console.error("[CallProvider] logCall function failed:", err);
+          });
+      } else {
+          console.warn('[CallProvider] Skipping call log due to invalid duration:', duration);
+      }
     } else {
         console.log('[CallProvider] Not logging call, missing required data.', {
             hasStartTime: !!callStartTimeRef.current,
@@ -181,8 +187,8 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setActiveCallSessionId(null);
     setActivePersona(null);
     callStartTimeRef.current = null;
-    if (forceRedirect) router.push('/chat');
-  }, [stopRecording, router, activeCallSessionId, activePersona]);
+    if (forceRedirect && pathname !== '/chat') router.push('/chat');
+  }, [stopRecording, router, activeCallSessionId, activePersona, pathname]);
 
   const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
     if (!user) return;
