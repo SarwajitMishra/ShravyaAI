@@ -18,6 +18,7 @@ import { getCurrentEvent } from './cultural-calendar';
 import * as http from 'http';
 import https from 'https';
 import { SpeechClient } from '@google-cloud/speech';
+import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 
 
 // --- Types ---
@@ -772,4 +773,44 @@ export const updateMessageFeedback = onCall(async (request) => {
   }
 });
 
+// Voice selection for TTS based on persona
+const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
+  'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' },
+  'Doctor Dadi': { languageCode: 'en-IN', name: 'en-IN-Wavenet-D' },
+  'Peace Pandit': { languageCode: 'en-IN', name: 'en-IN-Wavenet-C' },
+  'Bug Baba': { languageCode: 'en-IN', name: 'en-IN-Standard-A' },
+  'Zindagi Guru': { languageCode: 'en-IN', name: 'en-IN-Standard-B' },
+};
+
+
+export const textToSpeech = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
+  }
+  const { text, persona } = request.data;
+  if (!text || !persona) {
+    throw new HttpsError("invalid-argument", "Missing required fields: text or persona.");
+  }
+
+  try {
+    const client = new TextToSpeechClient();
+    const selectedVoice = personaVoices[persona as Persona] || personaVoices['Buddy'];
+
+    const ttsRequest = {
+      input: { text },
+      voice: selectedVoice,
+      audioConfig: { audioEncoding: 'MP3' as const },
+    };
+
+    const [response] = await client.synthesizeSpeech(ttsRequest);
     
+    if (response.audioContent) {
+      return { audioContent: (response.audioContent as Buffer).toString('base64') };
+    } else {
+      throw new HttpsError("internal", "Failed to generate audio content.");
+    }
+  } catch (error) {
+    logger.error("Text-to-Speech Error:", error);
+    throw new HttpsError("internal", "Failed to process text-to-speech request.");
+  }
+});

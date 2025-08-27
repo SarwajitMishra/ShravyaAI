@@ -18,8 +18,12 @@ import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatHistory } from "@/hooks/use-chat-history";
-import { textToSpeech } from "@/ai/flows/text-to-speech";
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app as firebaseApp } from '@/lib/firebase';
 
+
+const functions = getFunctions(firebaseApp);
+const textToSpeech = httpsCallable(functions, 'textToSpeech');
 
 interface ChatMessageProps {
   message: AiMessage;
@@ -76,11 +80,13 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
   const handleReadAloud = async () => {
     setIsReadingAloud(true);
     try {
-      const response = await textToSpeech({ text: message.content });
-      if (response && response.audioData) {
-        const audio = new Audio(`data:audio/wav;base64,${response.audioData}`);
+      const result: any = await textToSpeech({ text: message.content, persona: message.mode });
+      if (result.data && result.data.audioContent) {
+        const audio = new Audio(`data:audio/mp3;base64,${result.data.audioContent}`);
         audio.play();
         audio.onended = () => setIsReadingAloud(false);
+      } else {
+        throw new Error("Audio content not found in response.");
       }
     } catch (error) {
       console.error("Error reading aloud:", error);
@@ -286,4 +292,3 @@ export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessa
   );
 }
 
-    
