@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc, addDoc, collectionGroup } from "firebase/firestore";
+import { getFirestore, collection, query, orderBy, onSnapshot, doc, DocumentData, updateDoc, getDoc, addDoc, collectionGroup, Timestamp } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { type Persona } from '@/lib/types';
 import type { AiSession, AiMessage, UserProfile, CallLog } from '@/lib/types';
@@ -57,26 +57,23 @@ export function useChatHistory() {
     }
     const callsQuery = query(
         collectionGroup(db, 'calls'),
-        // Assuming 'calls' are under 'sessions' which are under 'aiProfiles/{uid}'
-        // A where clause on a parent document field is not directly possible.
-        // We will fetch all and filter client-side, which is feasible for a moderate number of sessions.
-        // For larger scales, a different data model would be needed.
         orderBy('startTime', 'desc')
     );
 
     const unsubscribe = onSnapshot(callsQuery, (snapshot) => {
         const userCalls: CallLog[] = [];
         snapshot.forEach(doc => {
-            // path is like: aiProfiles/{uid}/sessions/{sid}/calls/{cid}
             if (doc.ref.path.startsWith(`aiProfiles/${user.uid}`)) {
                 const data = doc.data();
-                userCalls.push({
-                    id: doc.id,
-                    sessionId: doc.ref.parent.parent!.id,
-                    persona: data.persona,
-                    startTime: data.startTime.toMillis(),
-                    duration: data.duration,
-                });
+                if (data.startTime instanceof Timestamp) {
+                    userCalls.push({
+                        id: doc.id,
+                        sessionId: doc.ref.parent.parent!.id,
+                        persona: data.persona,
+                        startTime: data.startTime.toMillis(),
+                        duration: data.duration,
+                    });
+                }
             }
         });
         setCallHistory(userCalls);
@@ -103,14 +100,23 @@ export function useChatHistory() {
     ensureProfile();
     const q = query(collection(db, `aiProfiles/${user.uid}/sessions`), orderBy("updatedAt", "desc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const userSessions = querySnapshot.docs.map((doc: DocumentData) => ({
-          id: doc.id,
-          ...doc.data(),
-      }) as Omit<AiSession, 'messages'>);
-      setSessions(userSessions);
-      if (querySnapshot.empty) {
-        startNewConversation('Buddy');
-      }
+        const userSessions = querySnapshot.docs.map((doc: DocumentData) => {
+            const data = doc.data();
+            // Convert Firestore Timestamps to numbers
+            const updatedAt = data.updatedAt instanceof Timestamp ? data.updatedAt.toMillis() : data.updatedAt;
+            const createdAt = data.createdAt instanceof Timestamp ? data.createdAt.toMillis() : data.createdAt;
+
+            return {
+                id: doc.id,
+                ...data,
+                updatedAt,
+                createdAt,
+            } as Omit<AiSession, 'messages'>;
+        });
+        setSessions(userSessions);
+        if (querySnapshot.empty) {
+            startNewConversation('Buddy');
+        }
     });
     return unsubscribe;
   }, [user, loading, startNewConversation]);
@@ -130,7 +136,11 @@ export function useChatHistory() {
     };
     const q = query(collection(db, `aiProfiles/${user.uid}/sessions/${activeSessionId}/messages`), orderBy("createdAt", "asc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        const newMessages = querySnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as AiMessage);
+        const newMessages = querySnapshot.docs.map(doc => {
+            const data = doc.data();
+            const createdAt = data.createdAt instanceof Timestamp ? data.createdAt.toMillis() : data.createdAt;
+            return { ...data, id: doc.id, createdAt } as AiMessage
+        });
         setMessages(newMessages);
     });
     return unsubscribe;

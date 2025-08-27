@@ -653,7 +653,7 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                                       {convo.title.replace(`[${persona}] `, '')}
                                                     </span>
                                                      <span className="text-xs text-muted-foreground">
-                                                        {formatDistanceToNow(new Date(convo.updatedAt), { addSuffix: true })}
+                                                        {convo.updatedAt && formatDistanceToNow(new Date(convo.updatedAt), { addSuffix: true })}
                                                     </span>
                                                 </SidebarMenuButton>
                                                 <DropdownMenu>
@@ -714,7 +714,7 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                                         </div>
                                                         <div className="flex justify-between items-center mt-1">
                                                             <span className="text-xs text-muted-foreground">
-                                                                {formatDistanceToNow(new Date(call.startTime), { addSuffix: true })}
+                                                                {call.startTime && formatDistanceToNow(new Date(call.startTime), { addSuffix: true })}
                                                             </span>
                                                             <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
                                                                 Call Back
@@ -999,5 +999,3 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
     </div>
   );
 }
-
-    
