@@ -12,6 +12,7 @@ export function BrandIcon(props: { className?: string }) {
       width={24}
       height={24}
       priority
+      unoptimized={true}
     />
   );
 }

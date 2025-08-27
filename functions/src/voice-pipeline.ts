@@ -36,9 +36,9 @@ const personaVoices: Record<Persona, { languageCode: string; name: string }> = {
 const db = getFirestore();
 const auth = getAuth(); // Add this line
 const geminiApiKey = process.env.GEMINI_API_KEY!;
-const genAI = new GoogleGenerativeAI(geminiApiKey);
-const speechClient = new SpeechClient();
-const textToSpeechClient = new TextToSpeechClient();
+// const genAI = new GoogleGenerativeAI(geminiApiKey);
+// const speechClient = new SpeechClient();
+// const textToSpeechClient = new TextToSpeechClient();
 
 
 
@@ -240,13 +240,19 @@ export const liveVoicePipeline = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, 
 
 export const logCall = onCall<LogCallReq, Promise<LogCallRes>>(
     async (request) => {
+        logger.info('[logCall] Function invoked.');
+
         if (!request.auth) {
+            logger.error("[logCall] Authentication failed: request.auth is missing.");
             throw new HttpsError("unauthenticated", "Authentication required.");
         }
         const { uid } = request.auth;
         const { sessionId, persona, startTime, duration } = request.data;
 
+        logger.info('[logCall] Received data for user:', uid, { sessionId, persona, startTime, duration });
+
         if (!sessionId || !persona || !startTime || !duration) {
+            logger.error('[logCall] Invalid arguments:', { sessionId, persona, startTime, duration });
             throw new HttpsError("invalid-argument", "Missing required fields.");
         }
 
@@ -258,12 +264,16 @@ export const logCall = onCall<LogCallReq, Promise<LogCallRes>>(
                 duration: Math.round(duration / 1000), // Convert ms to seconds
             };
             
+            logger.info('[logCall] Writing to Firestore with data:', callData);
             const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
+            logger.info('[logCall] Successfully wrote to Firestore, doc ID:', callDocRef.id);
             
             return { success: true, callId: callDocRef.id };
         } catch (error) {
-            logger.error("Error logging call:", error);
-            throw new HttpsError("internal", "Failed to log call data.");
+            logger.error("[logCall] Error writing to Firestore:", error);
+            throw new httpsError("internal", "Failed to log call data.");
         }
     }
 );
+
+    

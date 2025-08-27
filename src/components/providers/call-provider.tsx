@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from './auth-provider';
-import { useRouter } from 'next/navigation';
+import { useRouter,usePathname  } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app as firebaseApp } from '@/lib/firebase';
 import { type Persona } from '@/lib/types';
@@ -49,6 +49,7 @@ function base64ToBytes(b64: string): Uint8Array {
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [isPipViewActive, setIsPipViewActive] = useState(false);
@@ -135,12 +136,14 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
   }, [stopRecording]);
 
   const endCall = useCallback((forceRedirect = true) => {
+    console.log('[CallProvider] endCall triggered.');
     callEndedIntentionallyRef.current = true; // Mark that the call was ended on purpose
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
 
     if (socketRef.current) {
         if (socketRef.current.readyState === WebSocket.OPEN) {
+            console.log('[CallProvider] Sending stop event to WebSocket.');
             socketRef.current.send(JSON.stringify({ event: 'stop' }));
         }
         socketRef.current.onclose = null; // Prevent onclose from firing during manual shutdown
@@ -151,12 +154,24 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     if (callStartTimeRef.current && activeCallSessionId && activePersona) {
       const endTime = Date.now();
       const duration = endTime - callStartTimeRef.current;
-      logCall({
+      const callData = {
         sessionId: activeCallSessionId,
         persona: activePersona as Persona,
         startTime: callStartTimeRef.current,
         duration: duration,
-      }).catch(err => console.error("Failed to log call:", err));
+      };
+      console.log('[CallProvider] Preparing to log call with data:', callData);
+      logCall(callData).then(result => {
+        console.log('[CallProvider] logCall function succeeded:', result);
+      }).catch(err => {
+        console.error("[CallProvider] logCall function failed:", err);
+      });
+    } else {
+        console.log('[CallProvider] Not logging call, missing required data.', {
+            hasStartTime: !!callStartTimeRef.current,
+            activeCallSessionId,
+            activePersona,
+        });
     }
 
 
@@ -217,7 +232,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
       } else {
         console.error("Could not reconnect to the call. Ending.");
         // Pass false to prevent redirect loop if already on chat page
-        endCall(router.pathname !== '/chat');
+        endCall(pathname !== '/chat');
       }
     };
 
@@ -225,7 +240,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
       console.error("WebSocket error:", error);
       // The onclose event will be fired automatically after an error, triggering the retry logic.
     };
-  }, [user, startRecording, playAudio, endCall, router.pathname]);
+  }, [user, startRecording, playAudio, endCall, pathname]);
 
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (isCallActive) return;
@@ -256,3 +271,5 @@ export function useCall() {
   }
   return context;
 }
+
+    
