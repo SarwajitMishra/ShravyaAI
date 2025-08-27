@@ -33,7 +33,7 @@ export type AiSession = {
   uid: string;
   title: string;
   mode: Mode;
-  type?: 'voice' | 'text'; 
+  type?: 'voice' | 'text';
   languageIntent: LangIntent;
   isPremiumSnapshot?: boolean;
   createdAt: number;
@@ -47,7 +47,7 @@ export type AiSession = {
 export type AiMessage = {
   showScript: boolean;
   id: string;
-  role: "user"|"assistant";
+  role: "user"|"assistant"|"system";
   content: string;
   romanizedHint?: string;
   nativeScriptLine?: string;

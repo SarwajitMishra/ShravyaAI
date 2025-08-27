@@ -1,3 +1,4 @@
+
 "use client";
 
 import { PipCallView } from '@/components/providers/pip-call-view';
@@ -836,7 +837,13 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                     </div>
                 ) : (
                     activeConversation?.messages?.map((message: AiMessage) => (
-                        <ChatMessage key={message.id} message={message} onRegenerate={() => regenerateLastMessage()} onScriptToggle={() => { /* Not implemented */ }} />
+                        <ChatMessage 
+                            key={message.id} 
+                            message={message} 
+                            onRegenerate={() => regenerateLastMessage()} 
+                            onScriptToggle={() => { /* Not implemented */ }}
+                            isVoiceSession={activeConversation?.type === 'voice'}
+                        />
                     ))
                 )}
                 {isPending && <ThinkingBubble />}

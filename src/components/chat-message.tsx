@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Copy, RefreshCw, Languages, User, AlertTriangle, Check, FileText } from "lucide-react";
+import { Copy, RefreshCw, Languages, User, AlertTriangle, Check, FileText, Phone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DiyaIcon } from "@/components/icons";
 import {
@@ -29,6 +29,7 @@ interface ChatMessageProps {
   message: AiMessage;
   onRegenerate: (message: AiMessage) => void;
   onScriptToggle: (messageId: string) => void;
+  isVoiceSession?: boolean;
 }
 
 const CodeBlock = ({ className, children }: { className?: string; children: React.ReactNode }) => {
@@ -59,7 +60,7 @@ const CodeBlock = ({ className, children }: { className?: string; children: Reac
 };
 
 
-export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessageProps) {
+export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSession }: ChatMessageProps) {
   const { toast } = useToast();
 
   const handleCopy = () => {
@@ -71,6 +72,16 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
   };
 
   const isUser = message.role === "user";
+  const isSystem = message.role === "system";
+
+  if (isSystem) {
+      return (
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground my-2">
+            <Phone className="h-3 w-3" />
+            <span>{message.content}</span>
+        </div>
+      )
+  }
 
   return (
     <div
@@ -94,7 +105,8 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle }: ChatMessa
             ? "bg-secondary text-secondary-foreground rounded-br-none"
             : "bg-transparent text-foreground rounded-tl-none",
           message.isError && "bg-destructive/20 border border-destructive",
-          message.isPending && "opacity-50"
+          message.isPending && "opacity-50",
+          isVoiceSession && "italic"
         )}
       >
         {message.isError && (

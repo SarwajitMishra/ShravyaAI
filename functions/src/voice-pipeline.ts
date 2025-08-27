@@ -130,7 +130,13 @@ if (msg.event === "start" && uid && msg.sessionId) {
 
             // 1. Assign sessionRef. It is now guaranteed to be non-null for the rest of this block.
             sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+            await sessionRef.update({ type: 'voice' });
             logger.info(`Joining call for user ${uid} in session ${sessionId}`);
+             await db.collection(sessionRef.path + '/messages').add({
+                role: 'system',
+                content: 'Live Call Started',
+                createdAt: FieldValue.serverTimestamp()
+            });
 
             // 2. Log the start of the call immediately.
             const callStartTime = FieldValue.serverTimestamp();
