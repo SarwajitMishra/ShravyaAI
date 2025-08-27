@@ -218,6 +218,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
         documentUrls: Array.isArray(message.documentUrls) ? message.documentUrls : [], // Add this line to save document URLs
         createdAt: FieldValue.serverTimestamp(),
         createdAtMs: Date.now(),
+        mode: context.persona,
       });
       await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
   
@@ -414,6 +415,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           content: text,
           createdAt: FieldValue.serverTimestamp(),
           createdAtMs: Date.now(),
+          mode: turnContext.persona,
         });
         await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
 
