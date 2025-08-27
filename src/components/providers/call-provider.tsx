@@ -161,7 +161,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         duration: duration,
       };
       console.log('[CallProvider] Preparing to log call with data:', callData);
-      logCallRequest(callData).then(result => {
+      logCallRequest({data: callData}).then(result => {
         console.log('[CallProvider] logCall function succeeded:', result);
       }).catch(err => {
         console.error("[CallProvider] logCall function failed:", err);
