@@ -7,9 +7,16 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
+function formatElapsedTime(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    const paddedSeconds = String(remainingSeconds).padStart(2, '0');
+    return `${paddedMinutes}:${paddedSeconds}`;
+}
 
 export function PipCallView() {
-  const { isPipViewActive, connectionStatus, activePersona, isMuted, toggleMute, endCall } = useCall();
+  const { isPipViewActive, connectionStatus, activePersona, isMuted, toggleMute, endCall, elapsedTime } = useCall();
 
   if (!isPipViewActive) {
     return null;
@@ -37,7 +44,10 @@ export function PipCallView() {
       
       <Link href="/voice" className="flex items-center gap-2 text-primary animate-pulse pr-2">
         {renderStatusIcon()}
-        <span className="font-semibold">{connectionStatus === 'reconnecting' ? 'Reconnecting...' : (activePersona || 'On Call')}</span>
+        <div className="flex flex-col items-start leading-tight">
+          <span className="font-semibold text-sm">{connectionStatus === 'reconnecting' ? 'Reconnecting...' : (activePersona || 'On Call')}</span>
+          {connectionStatus === 'connected' && <span className="font-mono text-xs">{formatElapsedTime(elapsedTime)}</span>}
+        </div>
       </Link>
       
       <Button variant="ghost" size="icon" className="rounded-full" onClick={toggleMute}>
