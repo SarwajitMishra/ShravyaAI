@@ -8,7 +8,6 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app as firebaseApp } from '@/lib/firebase';
 import { type Persona } from '@/lib/types';
 
-
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
 type CallContextType = {
@@ -32,6 +31,21 @@ const CallContext = createContext<CallContextType | undefined>(undefined);
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 
+// --- Helpers: base64 <-> bytes (browser-safe, no Buffer) ---
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -46,7 +60,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const retryCountRef = useRef(0);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMutedRef = useRef(isMuted);
 
   const callStartTimeRef = useRef<number | null>(null);
@@ -57,81 +71,92 @@ export function CallProvider({ children }: { children: ReactNode }) {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-  const playAudio = useCallback(async (audioBuffer: Buffer) => {
-    if (!audioContextRef.current && typeof window !== 'undefined') {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    const audioContext = audioContextRef.current;
-    if (!audioContext) return;
+// Put this helper above, or inline it inside playAudio
+function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  // Always returns a brand-new ArrayBuffer (never SharedArrayBuffer)
+  const ab = new ArrayBuffer(u8.byteLength);
+  new Uint8Array(ab).set(u8);
+  return ab;
+}
 
-    try {
-        const arrayBuffer = audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength);
-        const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        const source = audioContext.createBufferSource();
-        source.buffer = decodedBuffer;
-        source.connect(audioContext.destination);
-        source.start(0);
-    } catch (error) {
-        console.error("Error decoding or playing audio:", error);
-    }
-  }, []);
+const playAudio = useCallback(async (audioBytes: Uint8Array) => {
+  if (!audioContextRef.current && typeof window !== 'undefined') {
+    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  const audioContext = audioContextRef.current;
+  if (!audioContext) return;
+
+  try {
+    // ✅ Force a real ArrayBuffer for TS and the Web Audio API
+    const arrayBuffer: ArrayBuffer = toArrayBuffer(audioBytes);
+    const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    const source = audioContext.createBufferSource();
+    source.buffer = decodedBuffer;
+    source.connect(audioContext.destination);
+    source.start(0);
+  } catch (error) {
+    console.error("Error decoding or playing audio:", error);
+  }
+}, []);
+
 
   const stopRecording = useCallback(() => {
-      if (mediaRecorderRef.current) {
-          mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-          if (mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-          }
-          mediaRecorderRef.current = null;
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      if (mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
       }
+      mediaRecorderRef.current = null;
+    }
   }, []);
 
   const startRecording = useCallback(async () => {
     if (mediaRecorderRef.current) stopRecording();
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true }});
-        const newMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
-        
-        newMediaRecorder.ondataavailable = async (event) => {
-            if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMutedRef.current) {
-                const arrayBuffer = await event.data.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-                socketRef.current?.send(JSON.stringify({ event: 'audio', data: buffer.toString('base64') }));
-            }
-        };
-        
-        newMediaRecorder.start(500); // Send audio chunks every 500ms
-        mediaRecorderRef.current = newMediaRecorder;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true } });
+      const newMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
+
+      newMediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN && !isMutedRef.current) {
+          const ab = await event.data.arrayBuffer();
+          const b64 = bytesToBase64(new Uint8Array(ab));
+          socketRef.current?.send(JSON.stringify({ event: 'audio', data: b64 }));
+        }
+      };
+
+      newMediaRecorder.start(500); // Send audio chunks every 500ms
+      mediaRecorderRef.current = newMediaRecorder;
     } catch (error) {
-        console.error("Error accessing microphone:", error);
-        // Consider showing a toast or message to the user
+      console.error("Error accessing microphone:", error);
+      // Consider showing a toast or message to the user
     }
   }, [stopRecording]);
 
   const endCall = useCallback((forceRedirect = true) => {
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
-    
-    if (callStartTimeRef.current && activeCallSessionId && activePersona) {
-        const endTime = Date.now();
-        const duration = Math.round((endTime - callStartTimeRef.current) / 1000); // duration in seconds
-        logCall({
-            sessionId: activeCallSessionId,
-            persona: activePersona as Persona,
-            startTime: callStartTimeRef.current,
-            duration: duration,
-        }).catch(err => console.error("Failed to log call:", err));
-    }
-
 
     if (socketRef.current) {
-      if (socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({ event: 'stop' }));
-      }
-      socketRef.current.onclose = null; // Prevent onclose from firing during manual shutdown
-      socketRef.current.close(1000, "Call ended by user");
-      socketRef.current = null;
+        if (socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ event: 'stop' }));
+        }
+        socketRef.current.onclose = null; // Prevent onclose from firing during manual shutdown
+        socketRef.current.close(1000, "Call ended by user");
+        socketRef.current = null;
     }
+
+    if (callStartTimeRef.current && activeCallSessionId && activePersona) {
+      const endTime = Date.now();
+      const duration = endTime - callStartTimeRef.current;
+      logCall({
+        sessionId: activeCallSessionId,
+        persona: activePersona as Persona,
+        startTime: callStartTimeRef.current,
+        duration: duration,
+      }).catch(err => console.error("Failed to log call:", err));
+    }
+
+
     stopRecording();
     setConnectionStatus('disconnected');
     setIsPipViewActive(false);
@@ -151,46 +176,46 @@ export function CallProvider({ children }: { children: ReactNode }) {
     socketRef.current = socket;
 
     socket.onopen = () => {
-        console.log("WebSocket connected");
-        retryCountRef.current = 0;
-        setConnectionStatus('connected');
-        socket.send(JSON.stringify({ event: 'start', persona: persona, sessionId: sessionId }));
-        startRecording();
+      console.log("WebSocket connected");
+      retryCountRef.current = 0;
+      setConnectionStatus('connected');
+      socket.send(JSON.stringify({ event: 'start', persona: persona, sessionId: sessionId }));
+      startRecording();
     };
-    
+
     socket.onmessage = async (event) => {
-        try {
-            const msg = JSON.parse(event.data);
-            if (msg.event === 'audio' && msg.data) {
-                const audioBuffer = Buffer.from(msg.data, 'base64');
-                await playAudio(audioBuffer);
-            }
-        } catch (e) {
-            console.error('Error parsing message or playing audio', e)
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'audio' && msg.data) {
+          const audioBytes = base64ToBytes(msg.data as string);
+          await playAudio(audioBytes);
         }
+      } catch (e) {
+        console.error('Error parsing message or playing audio', e);
+      }
     };
 
     socket.onclose = () => {
-        console.log("WebSocket closed");
-        stopRecording(); // Stop mic access when connection drops
-        if (retryCountRef.current < MAX_RETRIES) {
-            retryCountRef.current++;
-            const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCountRef.current - 1);
-            console.log(`Connection lost. Reconnecting in ${delay}ms... (Attempt ${retryCountRef.current})`);
-            setConnectionStatus('reconnecting');
-            retryTimeoutRef.current = setTimeout(() => connectToWebSocket(sessionId, persona), delay);
-        } else {
-            console.error("Could not reconnect to the call. Ending.");
-            endCall();
-        }
+      console.log("WebSocket closed");
+      stopRecording(); // Stop mic access when connection drops
+      if (retryCountRef.current < MAX_RETRIES) {
+        retryCountRef.current++;
+        const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCountRef.current - 1);
+        console.log(`Connection lost. Reconnecting in ${delay}ms... (Attempt ${retryCountRef.current})`);
+        setConnectionStatus('reconnecting');
+        retryTimeoutRef.current = setTimeout(() => connectToWebSocket(sessionId, persona), delay);
+      } else {
+        console.error("Could not reconnect to the call. Ending.");
+        // Pass false to prevent redirect loop if already on chat page
+        endCall(router.pathname !== '/chat');
+      }
     };
-    
-    socket.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        // The onclose event will be fired automatically after an error, triggering the retry logic.
-    };
-  }, [user, startRecording, playAudio, endCall]);
 
+    socket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      // The onclose event will be fired automatically after an error, triggering the retry logic.
+    };
+  }, [user, startRecording, playAudio, endCall, router.pathname]);
 
   const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (isCallActive) return;

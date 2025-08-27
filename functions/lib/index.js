@@ -36,11 +36,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.logCall = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.liveVoicePipeline = void 0;
+exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.logCall = exports.liveVoicePipeline = void 0;
 const app_1 = require("firebase-admin/app");
 (0, app_1.initializeApp)();
 var voice_pipeline_1 = require("./voice-pipeline");
 Object.defineProperty(exports, "liveVoicePipeline", { enumerable: true, get: function () { return voice_pipeline_1.liveVoicePipeline; } });
+Object.defineProperty(exports, "logCall", { enumerable: true, get: function () { return voice_pipeline_1.logCall; } });
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -446,30 +447,6 @@ exports.uploadFile = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, async 
         throw new https_1.HttpsError("internal", "Failed to upload file.");
     }
 });
-exports.logCall = (0, https_1.onCall)(async (request) => {
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
-    }
-    const { uid } = request.auth;
-    const { sessionId, persona, startTime, duration } = request.data;
-    if (!sessionId || !persona || !startTime || duration === undefined) {
-        throw new https_1.HttpsError("invalid-argument", "Missing required fields for logging the call.");
-    }
-    try {
-        const callRef = db.collection(`aiProfiles/${uid}/sessions/${sessionId}/calls`).doc();
-        await callRef.set({
-            persona,
-            startTime: firestore_1.Timestamp.fromMillis(startTime),
-            duration, // in seconds
-            createdAt: firestore_1.FieldValue.serverTimestamp(),
-        });
-        return { success: true, callId: callRef.id };
-    }
-    catch (error) {
-        logger.error("Error logging call:", error);
-        throw new https_1.HttpsError("internal", "Failed to log call data.");
-    }
-});
 async function _internalPerformWebSearch(query) {
     if (!query)
         return { error: "Missing query." };
@@ -537,7 +514,6 @@ exports.deleteAccountData = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("internal", "Failed to delete account data.");
     }
 });
-// functions/src/index.ts
 exports.transcribeAudio = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");

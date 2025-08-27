@@ -64,6 +64,28 @@ function getSystemPrompt(persona: Persona, transcriptionLanguage: string): strin
     return  `${baseInstruction} As ${persona}, ${personaPrompts[persona] || personaPrompts['Buddy']}`;
 }
 
+// functions/src/voice-pipeline.ts
+
+// --- ADD THIS NEW HELPER FUNCTION ---
+async function _internalLogCall(uid: string, sessionId: string, persona: Persona, startTime: number) {
+    try {
+        const duration = Date.now() - startTime;
+        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+        const callDocRef = await db.collection(sessionRef.path + '/calls').add({
+            persona,
+            startTime: FieldValue.serverTimestamp(),
+            endTime: FieldValue.serverTimestamp(),
+            duration
+        });
+        logger.info(`Call logged for session ${sessionId} with ID ${callDocRef.id}`);
+        return { success: true, callId: callDocRef.id };
+    } catch (error) {
+        logger.error("Error logging call:", error);
+        return { success: false };
+    }
+}
+
+
 // Add this new helper function
 const formatHistoryForAI = (history: FirebaseFirestore.QuerySnapshot): any[] => {
     type RawMsg = { role: 'user' | 'assistant' | 'model'; content?: string; };
@@ -77,7 +99,6 @@ const formatHistoryForAI = (history: FirebaseFirestore.QuerySnapshot): any[] => 
 
 
 // --- WebSocket Connection Handling ---
-// functions/src/voice-pipeline.ts
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage, uid: string) => {
     logger.info("Client connected to Live Voice Pipeline", { uid });
@@ -218,25 +239,31 @@ export const liveVoicePipeline = onRequest({secrets: ["GEMINI_API_KEY"]}, (req, 
     });
 
 export const logCall = onCall<LogCallReq, Promise<LogCallRes>>(
-        async (request) => {
-            if (!request.auth) { throw new HttpsError("unauthenticated", "Authentication required."); }
-            const { uid } = request.auth;
-            const { sessionId, persona, startTime, duration } = request.data;
-            if (!sessionId || !persona || !startTime || !duration) {
-                throw new HttpsError("invalid-argument", "Missing required fields.");
-            }
-            try {
-                const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-                const callDocRef = await db.collection(sessionRef.path + '/calls').add({
-                    persona,
-                    startTime: FieldValue.serverTimestamp(),
-                    endTime: FieldValue.serverTimestamp(),
-                    duration
-                });
-                return { success: true, callId: callDocRef.id };
-            } catch (error) {
-                logger.error("Error logging call:", error);
-                throw new HttpsError("internal", "Failed to log call data.");
-            }
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Authentication required.");
         }
-    );
+        const { uid } = request.auth;
+        const { sessionId, persona, startTime, duration } = request.data;
+
+        if (!sessionId || !persona || !startTime || !duration) {
+            throw new HttpsError("invalid-argument", "Missing required fields.");
+        }
+
+        try {
+            const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+            const callData = {
+                persona,
+                startTime: new Date(startTime), // Convert client timestamp to Firestore Timestamp
+                duration: Math.round(duration / 1000), // Convert ms to seconds
+            };
+            
+            const callDocRef = await db.collection(sessionRef.path + '/calls').add(callData);
+            
+            return { success: true, callId: callDocRef.id };
+        } catch (error) {
+            logger.error("Error logging call:", error);
+            throw new HttpsError("internal", "Failed to log call data.");
+        }
+    }
+);

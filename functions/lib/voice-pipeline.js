@@ -1,4 +1,3 @@
-
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -34,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.liveVoicePipeline = void 0;
+exports.logCall = exports.liveVoicePipeline = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const app_1 = require("firebase-admin/app");
@@ -48,7 +47,6 @@ const auth_1 = require("firebase-admin/auth");
 if ((0, app_1.getApps)().length === 0) {
     (0, app_1.initializeApp)();
 }
-// functions/src/voice-pipeline.ts
 // --- Voice Mapping for Personas ---
 const personaVoices = {
     'Buddy': { languageCode: 'en-IN', name: 'en-IN-Wavenet-A' }, // Friendly Male
@@ -61,6 +59,9 @@ const personaVoices = {
 const db = (0, firestore_1.getFirestore)();
 const auth = (0, auth_1.getAuth)(); // Add this line
 const geminiApiKey = process.env.GEMINI_API_KEY;
+const genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
+const speechClient = new speech_1.SpeechClient();
+const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
 // --- WebSocket Server Setup ---
 const wss = new ws_1.WebSocketServer({ noServer: true });
 // --- Core AI Logic ---
@@ -206,4 +207,28 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"]
         logger.error("WebSocket Authentication Error:", error);
         req.socket.destroy();
     });
+});
+exports.logCall = (0, https_1.onCall)(async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication required.");
+    }
+    const { uid } = request.auth;
+    const { sessionId, persona, startTime, duration } = request.data;
+    if (!sessionId || !persona || !startTime || !duration) {
+        throw new https_1.HttpsError("invalid-argument", "Missing required fields.");
+    }
+    try {
+        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
+        const callDocRef = await db.collection(sessionRef.path + '/calls').add({
+            persona,
+            startTime: firestore_1.FieldValue.serverTimestamp(),
+            endTime: firestore_1.FieldValue.serverTimestamp(),
+            duration
+        });
+        return { success: true, callId: callDocRef.id };
+    }
+    catch (error) {
+        logger.error("Error logging call:", error);
+        throw new https_1.HttpsError("internal", "Failed to log call data.");
+    }
 });
