@@ -19,10 +19,10 @@ import * as http from 'http';
 import https from 'https';
 import { SpeechClient } from '@google-cloud/speech';
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
-import { type Persona } from '@/lib/types';
 
 
 // --- Types ---
+type Persona = "Buddy" | "Doctor Dadi" | "Peace Pandit" | "Bug Baba" | "Zindagi Guru";
 type LangIntent = 'auto' | 'hi' | 'en' | 'ta' | 'te' | 'mr' | 'bn' | 'ml' | 'hinglish';
 type UserTier = 'free' | 'pro';
 
@@ -348,6 +348,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
             content: errorMessage,
             createdAt: FieldValue.serverTimestamp(),
             createdAtMs: Date.now(),
+            mode: turnContext.persona,
         });
         await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
        
@@ -358,14 +359,14 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
   
       try {
         // --- 4) Send to AI and Handle Tool Calling ---
-        const generativeModel = genAI.getGenerativeModel({
+        const generativeModelForChat = genAI.getGenerativeModel({
             model,
             safetySettings,
-            systemInstruction,
             tools: [webSearchTool],
+            systemInstruction,
         });
 
-        const chat = generativeModel.startChat({ history: chatHistory });
+        const chat = generativeModelForChat.startChat({ history: chatHistory });
 
         const messagePayload = [...multimediaParts];
         if (promptText) {
@@ -566,7 +567,12 @@ async function _internalPerformWebSearch(query: string): Promise<any> {
   const apiKey = process.env.GOOGLE_SEARCH_API_KEY!;
   const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID!;
   const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
+  logger.info(`[Web Search] Requesting URL: ${url}`);
 
+  if (!apiKey || !cx) {
+    logger.error("[Web Search] Error: GOOGLE_SEARCH_API_KEY or PROGRAMMABLE_SEARCH_ENGINE_ID is not configured in the environment.");
+    throw new HttpsError("internal", "The search service is not configured correctly.");
+    }
   try {
       const response = await fetch(url);
       const json = await response.json() as { items?: any[] };
@@ -592,7 +598,15 @@ export const performWebSearch = onRequest(
       const apiKey = process.env.GOOGLE_SEARCH_API_KEY!;
       const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID!;
       const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
-  
+      logger.info(`[Web Search] Requesting URL: ${url}`);
+      
+      
+      if (!apiKey || !cx) {
+        logger.error("[Web Search] Error: GOOGLE_SEARCH_API_KEY or PROGRAMMABLE_SEARCH_ENGINE_ID is not configured in the environment.");
+        throw new HttpsError("internal", "The search service is not configured correctly.");
+        }
+
+
       try {
         const response = await fetch(url);
         const json = await response.json() as { items?: any[] };

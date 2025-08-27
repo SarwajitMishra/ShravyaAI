@@ -164,6 +164,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         documentUrls: Array.isArray(message.documentUrls) ? message.documentUrls : [], // Add this line to save document URLs
         createdAt: firestore_1.FieldValue.serverTimestamp(),
         createdAtMs: Date.now(),
+        mode: context.persona,
     });
     await sessionRef.update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
     const promptText = firstPartText.trim();
@@ -271,15 +272,13 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         // Return the error message to the client
         return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
     }
-    // functions/src/index.ts
-    // functions/src/index.ts
     try {
         // --- 4) Send to AI and Handle Tool Calling ---
         const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
             systemInstruction,
-            tools: [webSearchTool], // This was already correct, but for clarity
+            tools: [webSearchTool],
         });
         const chat = generativeModel.startChat({ history: chatHistory });
         const messagePayload = [...multimediaParts];
@@ -291,19 +290,22 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         }
         const initialResult = await chat.sendMessage(messagePayload);
         let finalResponse = initialResult.response;
-        // FIX: Call functionCalls as a method with ()
         const functionCalls = finalResponse.functionCalls();
         if (functionCalls && functionCalls.length > 0) {
             const call = functionCalls[0];
-            // FIX: Add a type assertion to tell TypeScript what 'args' contains
             const args = call.args;
             if (call.name === 'performWebSearch' && args.query) {
                 const searchResults = await _internalPerformWebSearch(args.query);
+                // This is the corrected structure for the function response.
+                // The response part must be an array of `Part` objects.
                 const toolResponseResult = await chat.sendMessage([
                     {
                         functionResponse: {
                             name: 'performWebSearch',
-                            response: { name: 'performWebSearch', content: searchResults },
+                            response: {
+                                name: 'performWebSearch', // The tool name is repeated here
+                                content: searchResults,
+                            },
                         },
                     },
                 ]);
@@ -318,6 +320,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             content: text,
             createdAt: firestore_1.FieldValue.serverTimestamp(),
             createdAtMs: Date.now(),
+            mode: turnContext.persona,
         });
         await sessionRef.update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
         // --- 6) Generate Smart Title (only once) ---
@@ -456,6 +459,11 @@ async function _internalPerformWebSearch(query) {
     const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
     const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
     const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
+    logger.info(`[Web Search] Requesting URL: ${url}`);
+    if (!apiKey || !cx) {
+        logger.error("[Web Search] Error: GOOGLE_SEARCH_API_KEY or PROGRAMMABLE_SEARCH_ENGINE_ID is not configured in the environment.");
+        throw new https_1.HttpsError("internal", "The search service is not configured correctly.");
+    }
     try {
         const response = await fetch(url);
         const json = await response.json();
@@ -480,6 +488,11 @@ exports.performWebSearch = (0, https_1.onRequest)({ secrets: ["GOOGLE_SEARCH_API
     const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
     const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
     const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
+    logger.info(`[Web Search] Requesting URL: ${url}`);
+    if (!apiKey || !cx) {
+        logger.error("[Web Search] Error: GOOGLE_SEARCH_API_KEY or PROGRAMMABLE_SEARCH_ENGINE_ID is not configured in the environment.");
+        throw new https_1.HttpsError("internal", "The search service is not configured correctly.");
+    }
     try {
         const response = await fetch(url);
         const json = await response.json();
