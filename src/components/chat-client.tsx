@@ -103,7 +103,7 @@ const greetings: { [locale: string]: { morning: string; afternoon: string; eveni
   "mr-IN": { morning: "नमस्कार", afternoon: "नमस्कार", evening: "नमस्कार" },
   "ta-IN": { morning: "வணக்கம்", afternoon: "வணக்கம்", evening: "வணக்கம்" },
   "gu-IN": { morning: "નમસ્તે", afternoon: "નમસ્તે", evening: "નમસ્તે" },
-  "kn-IN": { morning: "ನಮಸ್ಕಾರ", afternoon: "ನಮಸ್ಕಾರ", evening: "ನಮಸ್ಕಾರ" },
+  "kn-IN": { morning: "ನಮಸ್ಕಾರ", afternoon: "ನಮಸ್ಕಾರ", evening: "ನಮస్ಕಾರ" },
   "ml-IN": { morning: "നമസ്കാരം", afternoon: "നమస్കാരം", evening: "നమస్കാരം" },
   "pa-IN": { morning: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ", afternoon: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ", evening: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ" },
   "en-US": { morning: "Good Morning", afternoon: "Good Afternoon", evening: "Good Evening" },
@@ -647,10 +647,13 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                                 <SidebarMenuButton 
                                                     onClick={() => setActiveConversationId(convo.id)}
                                                     isActive={activeConversation?.id === convo.id}
-                                                    className="justify-start"
+                                                    className="justify-between"
                                                 >
                                                     <span className="truncate min-w-0 flex-1 text-left">
                                                       {convo.title.replace(`[${persona}] `, '')}
+                                                    </span>
+                                                     <span className="text-xs text-muted-foreground">
+                                                        {formatDistanceToNow(new Date(convo.updatedAt), { addSuffix: true })}
                                                     </span>
                                                 </SidebarMenuButton>
                                                 <DropdownMenu>
@@ -710,7 +713,9 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
                                                             <span className="text-xs text-muted-foreground">{formatCallDuration(call.duration)}</span>
                                                         </div>
                                                         <div className="flex justify-between items-center mt-1">
-                                                            <span className="text-xs text-muted-foreground">{formatCallTimestamp(call.startTime)}</span>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {formatDistanceToNow(new Date(call.startTime), { addSuffix: true })}
+                                                            </span>
                                                             <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
                                                                 Call Back
                                                             </Button>
@@ -994,3 +999,5 @@ const groupedChats = chatHistory?.reduce((acc, convo) => {
     </div>
   );
 }
+
+    
