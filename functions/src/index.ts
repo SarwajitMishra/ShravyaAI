@@ -787,8 +787,19 @@ export const textToSpeech = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
   }
-  const { text, persona } = request.data as {text: string, persona: Persona};
+  
+  // Log the entire incoming data payload for debugging
+  logger.info("textToSpeech function called with data:", JSON.stringify(request.data));
+
+  const { text, persona } = request.data as { text?: string; persona?: Persona };
+
+  // Log the destructured variables to see if they are correct
+  logger.info(`Destructured text: ${text}, Destructured persona: ${persona}`);
+
   if (!text || !persona) {
+    logger.error("Validation failed: Missing 'text' or 'persona' in payload.", {
+      receivedData: request.data,
+    });
     throw new HttpsError("invalid-argument", "Missing required fields: text or persona.");
   }
 
@@ -814,5 +825,3 @@ export const textToSpeech = onCall(async (request) => {
     throw new HttpsError("internal", "Failed to process text-to-speech request.");
   }
 });
-
-    
