@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Copy, RefreshCw, Languages, User, AlertTriangle, Check, FileText, Phone, ThumbsUp, ThumbsDown, Share2, Volume2 } from "lucide-react";
+import { Copy, RefreshCw, User, AlertTriangle, Check, FileText, Phone, ThumbsUp, ThumbsDown, Share2, Volume2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DiyaIcon } from "@/components/icons";
 import {
@@ -16,12 +16,12 @@ import {
 } from "@/components/ui/dialog";
 import ReactMarkdown from "react-markdown";
 import { useState } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 
 interface ChatMessageProps {
   message: AiMessage;
   onRegenerate: (message: AiMessage) => void;
-  onScriptToggle: (messageId: string) => void;
   isVoiceSession?: boolean;
 }
 
@@ -53,7 +53,7 @@ const CodeBlock = ({ className, children }: { className?: string; children: Reac
 };
 
 
-export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSession }: ChatMessageProps) {
+export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessageProps) {
   const { toast } = useToast();
 
   const handleCopy = () => {
@@ -183,27 +183,54 @@ export function ChatMessage({ message, onRegenerate, onScriptToggle, isVoiceSess
         
         {!isUser && !message.isError && (
             <div className="mt-2 flex items-center gap-1 text-muted-foreground">
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy}>
-                    <Copy className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onRegenerate(message)}>
-                    <RefreshCw className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Read Aloud")}>
-                    <Volume2 className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Like")}>
-                    <ThumbsUp className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Dislike")}>
-                    <ThumbsDown className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Share")}>
-                    <Share2 className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onScriptToggle(message.id)}>
-                    <Languages className="h-4 w-4" />
-                </Button>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy}>
+                            <Copy className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Copy</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onRegenerate(message)}>
+                            <RefreshCw className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Regenerate</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Read Aloud")}>
+                            <Volume2 className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Read Aloud</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Like")}>
+                            <ThumbsUp className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Like</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Dislike")}>
+                            <ThumbsDown className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Dislike</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleComingSoon("Share")}>
+                            <Share2 className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Share</p></TooltipContent>
+                </Tooltip>
             </div>
         )}
 
