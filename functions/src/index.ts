@@ -791,7 +791,7 @@ export const textToSpeech = onCall(async (request) => {
   // Log the entire incoming data payload for debugging
   logger.info("textToSpeech function called with data:", JSON.stringify(request.data));
 
-  const { text, persona } = request.data as { text?: string; persona?: Persona };
+  const { text, persona } = request.data;
 
   // Log the destructured variables to see if they are correct
   logger.info(`Destructured text: ${text}, Destructured persona: ${persona}`);
@@ -805,7 +805,7 @@ export const textToSpeech = onCall(async (request) => {
 
   try {
     const client = new TextToSpeechClient();
-    const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
+    const selectedVoice = personaVoices[persona as Persona] || personaVoices['Buddy'];
 
     const ttsRequest = {
       input: { text },
