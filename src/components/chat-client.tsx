@@ -480,7 +480,7 @@ const renderMessagesWithDateSeparators = () => {
   const messageElements: React.ReactNode[] = [];
   let lastDate: string | null = null;
 
-  activeConversation.messages.forEach((message, index) => {
+  activeConversation.messages.forEach((message) => {
     const messageDate = new Date(message.createdAt);
     let dateString: string;
 
@@ -494,7 +494,7 @@ const renderMessagesWithDateSeparators = () => {
 
     if (dateString !== lastDate) {
       messageElements.push(
-        <div key={`date-${dateString}`} className="text-center text-xs text-muted-foreground my-4">
+        <div key={`date-${dateString}-${message.id}`} className="text-center text-xs text-muted-foreground my-4">
           {dateString}
         </div>
       );
@@ -1029,5 +1029,3 @@ const renderMessagesWithDateSeparators = () => {
     </div>
   );
 }
-
-    

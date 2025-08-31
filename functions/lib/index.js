@@ -74,13 +74,13 @@ const webSearchTool = {
     functionDeclarations: [
         {
             name: "performWebSearch",
-            description: "Performs a web search to find real-time information, recent events, or topics outside of its core knowledge. Use this for questions about current events, stock prices, weather, or when the user explicitly asks you to search.",
+            description: "Search the web for fresh, time-sensitive information.",
             parameters: {
-                type: generative_ai_1.FunctionDeclarationSchemaType.OBJECT, // FIX: Use the imported enum
+                type: generative_ai_1.FunctionDeclarationSchemaType.OBJECT, // THIS IS THE FIX
                 properties: {
                     query: {
-                        type: generative_ai_1.FunctionDeclarationSchemaType.STRING, // FIX: Use the imported enum
-                        description: "The search query to use."
+                        type: generative_ai_1.FunctionDeclarationSchemaType.STRING, // THIS IS THE FIX
+                        description: "Concise search query capturing the user's request."
                     }
                 },
                 required: ["query"]
@@ -166,7 +166,6 @@ function chooseModel(ctx) {
 // functions/src/index.ts
 exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (request) => {
     ensureClients(); // 1. Initialize all necessary clients safely.
-    logger.info("[Web Search Debug]");
     // 2. Authenticate and Validate Arguments
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
@@ -216,41 +215,52 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
+            systemInstruction,
+            tools: [webSearchTool],
+            toolConfig: { functionCallingConfig: { mode: generative_ai_1.FunctionCallingMode.AUTO } },
         });
-        const chat = generativeModel.startChat({
+        // --- Start of New Logging ---
+        const chatConfig = {
             history: chatHistory,
             tools: [webSearchTool],
             systemInstruction: {
                 role: "system",
                 parts: [{ text: systemInstruction }]
             }
-        });
+        };
+        logger.info("[Web Search Debug] 5a. Logging System Instruction:", { systemInstruction });
+        logger.info("[Web Search Debug] 5b. Logging full chat config:", JSON.stringify(chatConfig, null, 2));
+        // --- End of New Logging ---
+        const chat = generativeModel.startChat({ history: chatHistory });
         const messagePayload = [...multimediaParts, { text: promptText }];
-        // 6. Call the AI and Handle Tool-Calling Flow
-        let finalResponse = (await chat.sendMessage(messagePayload)).response;
-        const functionCall = finalResponse.candidates?.[0]?.content?.parts?.[0]?.functionCall;
-        if (functionCall) {
-            logger.info("[Web Search Debug] 6. SUCCESS: Model wants to call a function!", { call: functionCall });
-            const { name, args } = functionCall;
-            const typedArgs = args;
-            if (name === 'performWebSearch' && typedArgs.query) {
-                const searchResults = await _internalPerformWebSearch(typedArgs.query);
-                const toolResponseResult = await chat.sendMessage([
+        let response = (await chat.sendMessage(messagePayload)).response;
+        // 2. Robustly scan all candidates and parts for a function call, as you designed.
+        const calls = response.candidates?.flatMap(c => c.content?.parts ?? [])
+            .map(p => p.functionCall)
+            .filter(Boolean) ?? [];
+        if (calls.length > 0) {
+            logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { call: calls[0] });
+            const { name, args } = calls[0];
+            if (name === "performWebSearch") {
+                const query = args?.query ?? "";
+                const results = await _internalPerformWebSearch(String(query));
+                // 3. Send the tool response with the CORRECT shape, as you identified.
+                const followUp = await chat.sendMessage([
                     {
                         functionResponse: {
-                            name: 'performWebSearch',
-                            response: { name: 'performWebSearch', content: searchResults },
+                            name: "performWebSearch",
+                            response: { results }, // The object payload, not a string
                         },
                     },
                 ]);
-                finalResponse = toolResponseResult.response;
+                response = followUp.response;
             }
         }
         else {
-            logger.warn("[Web Search Debug] 6. FAILURE: Model did NOT request a function call.");
-            logger.info(`[Web Search Debug] 6a. Model's direct response was: "${finalResponse.text()}"`);
+            logger.warn("[Web Search Debug] FAILURE: Model did NOT request a function call.");
+            logger.info(`[Web Search Debug] Model's direct response was: "${response.text()}"`);
         }
-        const text = finalResponse.text() ?? "I've processed the information. How can I assist you further?";
+        const text = response.text() ?? "I have now completed the search. How can I help you with the results?";
         logger.info(`[Web Search Debug] 7. [Server] Final text response: "${text}"`);
         // 7. Persist the AI's Final Response
         const modelMsgRef = await messagesColRef.add({

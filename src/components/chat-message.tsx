@@ -28,8 +28,10 @@ const textToSpeech = httpsCallable(functions, 'textToSpeech');
 interface ChatMessageProps {
   message: AiMessage;
   onRegenerate: () => void;
+  onScriptToggle: (messageId: string) => void; // Add this line
   isVoiceSession?: boolean;
 }
+
 
 const CodeBlock = ({ className, children }: { className?: string; children: React.ReactNode }) => {
     const [copied, setCopied] = useState(false);
