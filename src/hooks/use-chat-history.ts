@@ -160,6 +160,8 @@ export function useChatHistory() {
 
   const sendMessage = useCallback(async (content: string, persona: Persona, imageUrls: string[] = [], documentUrls: string[] = []) => {
     if (!user || !activeSessionId || !userProfile) return;
+    console.log(`[Web Search Debug] 1. [Client] Sending message with persona: ${persona}`);
+
     const sessionId = activeSessionId;
 
     const optimisticMessage: AiMessage = {
