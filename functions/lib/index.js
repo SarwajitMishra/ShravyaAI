@@ -172,10 +172,10 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
     }
     const { uid } = request.auth;
-    const { sessionId, message, context } = request.data;
-    logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${context?.persona}`);
+    const { sessionId, message, context: turnContext } = request.data;
+    logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${turnContext?.persona}`);
     logger.info(`[Web Search Debug] 2a. [Server] User prompt: "${message?.content}"`);
-    if (!sessionId || !message || !context) {
+    if (!sessionId || !message || !turnContext) {
         throw new https_1.HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
     }
     const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
@@ -187,7 +187,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         content: promptText,
         createdAt: firestore_1.FieldValue.serverTimestamp(),
         createdAtMs: Date.now(),
-        mode: context.persona,
+        mode: turnContext.persona,
         imageUrls: message.imageUrls || [],
         documentUrls: message.documentUrls || [],
     });
@@ -205,14 +205,14 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
                 const unsupportedFileName = decodeURIComponent(url).split('/').pop()?.split('?')[0] || 'your file';
                 const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported.`;
                 // Immediately save and return this error without calling the AI
-                const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: firestore_1.FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: context.persona });
+                const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: firestore_1.FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: turnContext.persona });
                 return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
             }
             multimediaParts.push(part);
         }
         // 5. Initialize the AI Model Correctly (ONE TIME)
-        const systemInstruction = getSystemPrompt(context.persona, context.lang || 'auto');
-        const model = chooseModel(context).model;
+        const systemInstruction = getSystemPrompt(turnContext.persona, turnContext.lang || 'auto');
+        const model = chooseModel(turnContext).model;
         const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
@@ -258,7 +258,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             content: text,
             createdAt: firestore_1.FieldValue.serverTimestamp(),
             createdAtMs: Date.now(),
-            mode: context.persona,
+            mode: turnContext.persona,
         });
         await sessionRef.update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
         // 8. Trigger Smart Title Generation (in the background) if it's the first turn
