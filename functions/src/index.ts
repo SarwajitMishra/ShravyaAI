@@ -221,13 +221,13 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
       }
       const { uid } = request.auth;
-      const { sessionId, message, context } = request.data;
-      logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${context?.persona}`);
+      const { sessionId, message, context: turnContext } = request.data;
+      logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${turnContext?.persona}`);
       logger.info(`[Web Search Debug] 2a. [Server] User prompt: "${message?.content}"`);
 
 
 
-      if (!sessionId || !message || !context) {
+      if (!sessionId || !message || !turnContext) {
           throw new HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
       }
 
@@ -241,7 +241,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           content: promptText,
           createdAt: FieldValue.serverTimestamp(),
           createdAtMs: Date.now(),
-          mode: context.persona,
+          mode: turnContext.persona,
           imageUrls: message.imageUrls || [],
           documentUrls: message.documentUrls || [],
       });
@@ -262,15 +262,15 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
                   const unsupportedFileName = decodeURIComponent(url).split('/').pop()?.split('?')[0] || 'your file';
                   const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported.`;
                   // Immediately save and return this error without calling the AI
-                  const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: context.persona });
+                  const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: turnContext.persona });
                   return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
               }
               multimediaParts.push(part);
           }
 
           // 5. Initialize the AI Model Correctly (ONE TIME)
-          const systemInstruction = getSystemPrompt(context.persona, context.lang || 'auto');
-          const model = chooseModel(context).model;
+          const systemInstruction = getSystemPrompt(turnContext.persona, turnContext.lang || 'auto');
+          const model = chooseModel(turnContext).model;
 
           const generativeModel = genAI.getGenerativeModel({
               model,
@@ -323,7 +323,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
               content: text,
               createdAt: FieldValue.serverTimestamp(),
               createdAtMs: Date.now(),
-              mode: context.persona,
+              mode: turnContext.persona,
           });
           await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
 
@@ -745,3 +745,5 @@ export const textToSpeech = onCall(async (request) => {
     throw new HttpsError("internal", "Failed to process text-to-speech request.");
   }
 });
+
+    
