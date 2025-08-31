@@ -271,7 +271,6 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
-            systemInstruction,
             tools: [webSearchTool],
             toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
         });
