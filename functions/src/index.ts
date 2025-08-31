@@ -215,17 +215,15 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
   { secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
   async (request) => {
       ensureClients(); // 1. Initialize all necessary clients safely.
-      logger.info("[Web Search Debug]")
       // 2. Authenticate and Validate Arguments
       if (!request.auth) {
           throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
       }
       const { uid } = request.auth;
       const { sessionId, message, context: turnContext } = request.data;
+      
       logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${turnContext?.persona}`);
       logger.info(`[Web Search Debug] 2a. [Server] User prompt: "${message?.content}"`);
-
-
 
       if (!sessionId || !message || !turnContext) {
           throw new HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
@@ -276,21 +274,31 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
               model,
               safetySettings,
           });
-
-          const chat = generativeModel.startChat({ 
+          
+          // --- Start of New Logging ---
+          const chatConfig = { 
               history: chatHistory,
               tools: [webSearchTool],
               systemInstruction: {
                   role: "system",
                   parts: [{text: systemInstruction}]
               }
-           });
+           };
+          logger.info("[Web Search Debug] 5a. Logging System Instruction:", { systemInstruction });
+          logger.info("[Web Search Debug] 5b. Logging full chat config:", JSON.stringify(chatConfig, null, 2));
+          // --- End of New Logging ---
+
+          const chat = generativeModel.startChat(chatConfig);
           const messagePayload = [...multimediaParts, { text: promptText }];
 
           // 6. Call the AI and Handle Tool-Calling Flow
-          let finalResponse = (await chat.sendMessage(messagePayload)).response;
-
+          const result = await chat.sendMessage(messagePayload);
           
+          // --- New Logging for Raw Response ---
+          logger.info("[Web Search Debug] 6a. Logging raw AI response object:", JSON.stringify(result.response, null, 2));
+          // --- End of New Logging ---
+          
+          let finalResponse = result.response;
           const functionCall = finalResponse.candidates?.[0]?.content?.parts?.[0]?.functionCall;
 
         if (functionCall) {
@@ -311,7 +319,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
             }
         } else {
             logger.warn("[Web Search Debug] 6. FAILURE: Model did NOT request a function call.");
-            logger.info(`[Web Search Debug] 6a. Model's direct response was: "${finalResponse.text()}"`);
+            logger.info(`[Web Search Debug] 6b. Model's direct text was: "${finalResponse.text()}"`);
         }
           
           const text = finalResponse.text() ?? "I've processed the information. How can I assist you further?";
@@ -710,7 +718,7 @@ export const textToSpeech = onCall(async (request) => {
   // Log the entire incoming data payload for debugging
   logger.info("[Server] textToSpeech function called with data:", JSON.stringify(request.data));
 
-  const { text, persona } = request.data;
+  const { text, persona } = request.data as { text?: string; persona?: Persona };
 
 
   // Log the destructured variables to see if they are correct
@@ -725,7 +733,7 @@ export const textToSpeech = onCall(async (request) => {
 
   try {
     const client = new TextToSpeechClient();
-    const selectedVoice = personaVoices[persona as Persona] || personaVoices['Buddy'];
+    const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
 
     const ttsRequest = {
       input: { text },
