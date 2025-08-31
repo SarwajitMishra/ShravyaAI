@@ -212,7 +212,7 @@ function chooseModel(ctx: TurnContext): { model: string; reason: string } {
 // functions/src/index.ts
 
 export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetResponseReq, Promise<AppendUserMessageAndGetResponseRes>>(
-  { secrets: ["GEMINI_API_KEY"] },
+  { secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
   async (request) => {
       ensureClients(); // 1. Initialize all necessary clients safely.
       logger.info("[Web Search Debug]")
@@ -262,7 +262,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
                   const unsupportedFileName = decodeURIComponent(url).split('/').pop()?.split('?')[0] || 'your file';
                   const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported.`;
                   // Immediately save and return this error without calling the AI
-                  const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: FieldValue.serverTimestamp(), createdAtMs: Date.now() });
+                  const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: context.persona });
                   return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
               }
               multimediaParts.push(part);
@@ -275,11 +275,16 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           const generativeModel = genAI.getGenerativeModel({
               model,
               safetySettings,
-              systemInstruction,
-              tools: [webSearchTool], // This is the critical line that enables web search
           });
 
-          const chat = generativeModel.startChat({ history: chatHistory });
+          const chat = generativeModel.startChat({ 
+              history: chatHistory,
+              tools: [webSearchTool],
+              systemInstruction: {
+                  role: "system",
+                  parts: [{text: systemInstruction}]
+              }
+           });
           const messagePayload = [...multimediaParts, { text: promptText }];
 
           // 6. Call the AI and Handle Tool-Calling Flow
@@ -705,7 +710,7 @@ export const textToSpeech = onCall(async (request) => {
   // Log the entire incoming data payload for debugging
   logger.info("[Server] textToSpeech function called with data:", JSON.stringify(request.data));
 
-  const { text, persona } = request.data as { text?: string; persona?: Persona };
+  const { text, persona } = request.data;
 
 
   // Log the destructured variables to see if they are correct
@@ -720,7 +725,7 @@ export const textToSpeech = onCall(async (request) => {
 
   try {
     const client = new TextToSpeechClient();
-    const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
+    const selectedVoice = personaVoices[persona as Persona] || personaVoices['Buddy'];
 
     const ttsRequest = {
       input: { text },
