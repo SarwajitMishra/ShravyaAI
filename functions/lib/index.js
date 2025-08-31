@@ -164,7 +164,7 @@ function chooseModel(ctx) {
 }
 // --- Main Chat Function (Reverted to Gemini Dev API) ---
 // functions/src/index.ts
-exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, async (request) => {
+exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (request) => {
     ensureClients(); // 1. Initialize all necessary clients safely.
     logger.info("[Web Search Debug]");
     // 2. Authenticate and Validate Arguments
@@ -205,7 +205,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
                 const unsupportedFileName = decodeURIComponent(url).split('/').pop()?.split('?')[0] || 'your file';
                 const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported.`;
                 // Immediately save and return this error without calling the AI
-                const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: firestore_1.FieldValue.serverTimestamp(), createdAtMs: Date.now() });
+                const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: firestore_1.FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: context.persona });
                 return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
             }
             multimediaParts.push(part);
@@ -216,10 +216,15 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
-            systemInstruction,
-            tools: [webSearchTool], // This is the critical line that enables web search
         });
-        const chat = generativeModel.startChat({ history: chatHistory });
+        const chat = generativeModel.startChat({
+            history: chatHistory,
+            tools: [webSearchTool],
+            systemInstruction: {
+                role: "system",
+                parts: [{ text: systemInstruction }]
+            }
+        });
         const messagePayload = [...multimediaParts, { text: promptText }];
         // 6. Call the AI and Handle Tool-Calling Flow
         let finalResponse = (await chat.sendMessage(messagePayload)).response;
