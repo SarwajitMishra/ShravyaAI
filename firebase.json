@@ -2,12 +2,15 @@
 {
   "hosting": {
     "site": "aishravya",
-    "source": "."
+    "source": ".",
+    "rewrites": [
+      {
+        "source": "/liveVoicePipeline",
+        "function": "liveVoicePipeline"
+      }
+    ]
   },
   "functions": {
     "source": "functions"
-  },
-  "firestore": {
-    "rules": "firestore.rules"
   }
 }

@@ -193,21 +193,29 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
 }, [stopRecording, router, activeCallSessionId, pathname, elapsedTime]);
 
   const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
-    if (!user) return;
+    if (!user || typeof window === 'undefined') return;
     setConnectionStatus(retryCountRef.current > 0 ? 'reconnecting' : 'connecting');
 
     const token = await user.getIdToken();
-    // Fallback to a development URL if needed
-    const websocketUrl = process.env.NEXT_PUBLIC_VOICE_PIPELINE_URL || `wss://livevoicepipeline-m7rijrszka-uc.a.run.app?token=${token}`;
+    const host = window.location.host;
+    const websocketUrl = `wss://${host}/liveVoicePipeline?token=${token}`;
+
+    console.log(`Connecting to WebSocket at: ${websocketUrl}`);
     const socket = new WebSocket(websocketUrl);
     socketRef.current = socket;
 
     socket.onopen = () => {
-      console.log("WebSocket connected");
-      retryCountRef.current = 0;
-      setConnectionStatus('connected');
-      socket.send(JSON.stringify({ event: 'start', persona: persona, sessionId: sessionId }));
-      startRecording();
+      const isReconnect = retryCountRef.current > 0;
+        console.log(`WebSocket connected successfully. Reconnect attempt: ${isReconnect}`);
+        retryCountRef.current = 0; // Reset after use
+        setConnectionStatus('connected');
+        socket.send(JSON.stringify({ 
+            event: 'start', 
+            persona: persona, 
+            sessionId: sessionId,
+            isReconnect: isReconnect 
+        }));
+        startRecording();
     };
 
     socket.onmessage = async (event) => {
@@ -222,15 +230,14 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
       }
     };
 
-    socket.onclose = () => {
-        // If the call was intentionally ended, do nothing further.
+    socket.onclose = (event) => {
         if (callEndedIntentionallyRef.current) {
             console.log("WebSocket closed intentionally.");
             return;
         }
 
-      console.log("WebSocket closed unexpectedly");
-      stopRecording(); // Stop mic access when connection drops
+      console.log(`WebSocket closed unexpectedly. Code: ${event.code}, Reason: ${event.reason}`);
+      stopRecording();
       if (retryCountRef.current < MAX_RETRIES) {
         retryCountRef.current++;
         const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCountRef.current - 1);
@@ -238,15 +245,13 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         setConnectionStatus('reconnecting');
         retryTimeoutRef.current = setTimeout(() => connectToWebSocket(sessionId, persona), delay);
       } else {
-        console.error("Could not reconnect to the call. Ending.");
-        // Pass false to prevent redirect loop if already on chat page
+        console.error("Could not reconnect to the call after multiple attempts. Ending.");
         endCall(pathname !== '/chat');
       }
     };
 
     socket.onerror = (error) => {
       console.error("WebSocket error:", error);
-      // The onclose event will be fired automatically after an error, triggering the retry logic.
     };
   }, [user, startRecording, playAudio, endCall, pathname]);
 
@@ -259,16 +264,14 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         return;
     }
 
-    // Set the state immediately to indicate a call is starting.
     callEndedIntentionallyRef.current = false;
     callStartTimeRef.current = Date.now();
     setActiveCallSessionId(sessionId);
     setActivePersona(persona);
     setIsPipViewActive(false);
-    setConnectionStatus('connecting'); // Explicitly set connecting status
+    setConnectionStatus('connecting');
     router.push('/voice');
 
-    // Log the call start
     try {
         const result: any = await startCallLog({ sessionId, persona });
         if (result.data.callId) {
@@ -279,19 +282,16 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         }
     } catch (err) {
         console.error("[CallProvider] startCallLog function failed:", err);
-        // Optionally, show a toast to the user that the call could not be started
-        endCall(false); // End call without redirecting
-        return; // Abort starting the call
+        endCall(false);
+        return;
     }
 
-    // Start the timer
     setElapsedTime(0);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(() => {
         setElapsedTime(prev => prev + 1);
     }, 1000);
     
-    // Finally, connect to the WebSocket
     connectToWebSocket(sessionId, persona);
 
   }, [isCallActive, activeCallSessionId, connectToWebSocket, router, pathname, endCall]);

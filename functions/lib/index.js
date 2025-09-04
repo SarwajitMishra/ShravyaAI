@@ -38,11 +38,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.textToSpeech = exports.updateMessageFeedback = exports.generateTitleForSession = exports.transcribeAudio = exports.deleteAccountData = exports.performWebSearch = exports.uploadFile = exports.uploadImage = exports.deleteSession = exports.updateSession = exports.createNewSession = exports.ensureProfile = exports.appendUserMessageAndGetResponse = exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
 const app_1 = require("firebase-admin/app");
-(0, app_1.initializeApp)();
 var voice_pipeline_1 = require("./voice-pipeline");
 Object.defineProperty(exports, "liveVoicePipeline", { enumerable: true, get: function () { return voice_pipeline_1.liveVoicePipeline; } });
 Object.defineProperty(exports, "startCallLog", { enumerable: true, get: function () { return voice_pipeline_1.startCallLog; } });
 Object.defineProperty(exports, "endCallLog", { enumerable: true, get: function () { return voice_pipeline_1.endCallLog; } });
+const internal_helpers_1 = require("./internal-helpers");
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -54,47 +54,31 @@ const http = __importStar(require("http"));
 const https_2 = __importDefault(require("https"));
 const speech_1 = require("@google-cloud/speech");
 const text_to_speech_1 = require("@google-cloud/text-to-speech");
-let db, genAI, speechClient;
-const ensureClients = () => {
-    if (!db) {
-        db = (0, firestore_1.getFirestore)();
-        const geminiApiKey = process.env.GEMINI_API_KEY;
-        genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
-        speechClient = new speech_1.SpeechClient();
-    }
-};
+const adminApp = (0, app_1.getApps)().length ? (0, app_1.getApp)() : (0, app_1.initializeApp)();
+const db = (0, firestore_1.getFirestore)(adminApp);
+let genAI, speechClient;
+const geminiApiKey = process.env.GEMINI_API_KEY;
+if (geminiApiKey) {
+    genAI = new generative_ai_1.GoogleGenerativeAI(geminiApiKey);
+    logger.info("Successfully initialized GoogleGenerativeAI client.");
+}
+else {
+    logger.error("FATAL: GEMINI_API_KEY environment variable is not set. AI functions will fail.");
+    genAI = new generative_ai_1.GoogleGenerativeAI("DUMMY_API_KEY");
+}
 const safetySettings = [
     { category: generative_ai_1.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
     { category: generative_ai_1.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
     { category: generative_ai_1.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
     { category: generative_ai_1.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: generative_ai_1.HarmBlockThreshold.BLOCK_ONLY_HIGH },
 ];
-// --- Define the Web Search Tool for the AI ---
-const webSearchTool = {
-    functionDeclarations: [
-        {
-            name: "performWebSearch",
-            description: "Search the web for fresh, time-sensitive information.",
-            parameters: {
-                type: generative_ai_1.FunctionDeclarationSchemaType.OBJECT, // THIS IS THE FIX
-                properties: {
-                    query: {
-                        type: generative_ai_1.FunctionDeclarationSchemaType.STRING, // THIS IS THE FIX
-                        description: "Concise search query capturing the user's request."
-                    }
-                },
-                required: ["query"]
-            }
-        }
-    ]
-};
 // --- Core Logic Functions (Simplified for Gemini Dev API) ---
 function createHash(input) { return crypto.createHash('md5').update(input).digest('hex'); }
 function getSystemPrompt(persona, langIntent) {
     // Base instructions for language and formatting
     const baseInstruction = `You are a helpful assistant powered by Google's Gemini 1.5 model. Your knowledge cutoff is May 2024. You have access to a tool called 'performWebSearch' that you can use to find real-time information. You should decide to use this tool when the user's prompt suggests a need for current information beyond your knowledge cutoff, or when they explicitly ask you to search.`;
     let languageInstruction = (langIntent === 'auto')
-        ? `Your primary directive is to strictly match the user's language on a turn-by-turn basis. Analyze the user's prompt and respond ONLY in the same language and script. For example: if the user writes in pure Hindi (Devanagari script), your response must be in pure Hindi. If the user writes in Hinglish (Hindi words with Latin script), your response must be in Hinglish. If they switch to Tamil, you must switch to Tamil. Do not mix languages unless the user does.`
+        ? `Your primary directive is to strictly match the user's language on a turn-by-turn basis. Analyze the user's prompt and respond ONLY in the same language and script. For example: If the user writes in Hinglish (Hindi words with Latin script), your response must be in Hinglish. If they switch to Tamil, you must switch to Tamil. Do not mix languages unless the user does.`
         : `You must respond exclusively in ${langIntent}.`;
     const formattingInstruction = "Structure all of your responses for clarity and visual appeal. Use markdown for formatting: use **bold text** for emphasis and titles, *italics* for nuance, and bulleted or numbered lists for steps or ideas. Break down long text into smaller, easy-to-read paragraphs. Incorporate relevant emojis to make the tone more engaging and friendly, but use them thoughtfully where appropriate. Your final response should always be well-structured and beautifully formatted.";
     // New, revamped persona prompts
@@ -165,8 +149,6 @@ function chooseModel(ctx) {
 // --- Main Chat Function (Reverted to Gemini Dev API) ---
 // functions/src/index.ts
 exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (request) => {
-    ensureClients(); // 1. Initialize all necessary clients safely.
-    // 2. Authenticate and Validate Arguments
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
     }
@@ -215,14 +197,14 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         const generativeModel = genAI.getGenerativeModel({
             model,
             safetySettings,
-            systemInstruction,
-            tools: [webSearchTool],
+            tools: [internal_helpers_1.webSearchTool],
             toolConfig: { functionCallingConfig: { mode: generative_ai_1.FunctionCallingMode.AUTO } },
+            systemInstruction
         });
         // --- Start of New Logging ---
         const chatConfig = {
             history: chatHistory,
-            tools: [webSearchTool],
+            tools: [internal_helpers_1.webSearchTool],
             systemInstruction: {
                 role: "system",
                 parts: [{ text: systemInstruction }]
@@ -231,7 +213,14 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         logger.info("[Web Search Debug] 5a. Logging System Instruction:", { systemInstruction });
         logger.info("[Web Search Debug] 5b. Logging full chat config:", JSON.stringify(chatConfig, null, 2));
         // --- End of New Logging ---
-        const chat = generativeModel.startChat({ history: chatHistory });
+        const chat = generativeModel.startChat({
+            history: chatHistory,
+            tools: [internal_helpers_1.webSearchTool],
+            systemInstruction: {
+                role: "system",
+                parts: [{ text: systemInstruction }]
+            }
+        });
         const messagePayload = [...multimediaParts, { text: promptText }];
         let response = (await chat.sendMessage(messagePayload)).response;
         // 2. Robustly scan all candidates and parts for a function call, as you designed.
@@ -243,7 +232,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             const { name, args } = calls[0];
             if (name === "performWebSearch") {
                 const query = args?.query ?? "";
-                const results = await _internalPerformWebSearch(String(query));
+                const results = await (0, internal_helpers_1._internalPerformWebSearch)(String(query));
                 // 3. Send the tool response with the CORRECT shape, as you identified.
                 const followUp = await chat.sendMessage([
                     {
@@ -287,6 +276,10 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
 exports.ensureProfile = (0, https_1.onCall)(async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
+    if (!db) {
+        logger.error("FATAL: Firestore db object is not initialized in ensureProfile.");
+        throw new https_1.HttpsError("internal", "Server configuration error.");
+    }
     const { uid } = request.auth;
     const defaults = request.data?.defaults || {};
     try {
@@ -397,61 +390,23 @@ exports.uploadFile = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, async 
         throw new https_1.HttpsError("internal", "Failed to upload file.");
     }
 });
-async function _internalPerformWebSearch(query) {
-    if (!query)
-        return { error: "Missing query." };
-    // This logic is copied directly from your existing performWebSearch function
-    const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-    const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
-    logger.info(`[Web Search] Requesting URL: ${url}`);
-    if (!apiKey || !cx) {
-        logger.error("[Web Search] Error: GOOGLE_SEARCH_API_KEY or PROGRAMMABLE_SEARCH_ENGINE_ID is not configured in the environment.");
-        throw new https_1.HttpsError("internal", "The search service is not configured correctly.");
-    }
-    try {
-        const response = await fetch(url);
-        const json = await response.json();
-        if (!response.ok) {
-            logger.error("CSE error", json);
-            return { error: "Search failed." };
-        }
-        // Return the data in a clean format for the AI
-        return (json.items || []).map((it) => ({ title: it.title, link: it.link, snippet: it.snippet }));
-    }
-    catch (e) {
-        logger.error("performWebSearch error", e);
-        return { error: "Unexpected error during search." };
-    }
-}
 exports.performWebSearch = (0, https_1.onRequest)({ secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (req, res) => {
-    const query = (req.method === 'GET' ? req.query.q : (req.body?.data?.query));
+    const query = (req.query.q || req.body.data?.query);
     if (!query) {
-        res.status(400).send({ error: "Missing 'query'." });
+        res.status(400).send({ error: "Missing 'query' in request." });
         return;
     }
-    const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-    const cx = process.env.PROGRAMMABLE_SEARCH_ENGINE_ID;
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
-    logger.info(`[Web Search] Requesting URL: ${url}`);
-    if (!apiKey || !cx) {
-        logger.error("[Web Search] Error: GOOGLE_SEARCH_API_KEY or PROGRAMMABLE_SEARCH_ENGINE_ID is not configured in the environment.");
-        throw new https_1.HttpsError("internal", "The search service is not configured correctly.");
-    }
     try {
-        const response = await fetch(url);
-        const json = await response.json();
-        if (!response.ok) {
-            logger.error("CSE error", json);
-            res.status(response.status).send({ error: "Search failed" });
-            return;
+        const results = await (0, internal_helpers_1._internalPerformWebSearch)(query);
+        if (results.error) {
+            res.status(500).send({ error: results.error });
         }
-        const results = (json.items || []).map((it) => ({ title: it.title, link: it.link, snippet: it.snippet }));
-        res.status(200).send({ data: { results } });
+        else {
+            res.status(200).send({ data: { results } });
+        }
     }
     catch (e) {
-        logger.error("performWebSearch error", e);
-        res.status(500).send({ error: "Unexpected error" });
+        res.status(500).send({ error: "An unexpected error occurred." });
     }
 });
 exports.deleteAccountData = (0, https_1.onCall)(async (request) => {
