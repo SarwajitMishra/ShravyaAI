@@ -4,9 +4,17 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 
+// --- Get target from environment variable ---
+const targetUrl = process.env.WSS_TARGET_URL;
+if (!targetUrl) {
+    console.error('FATAL: WSS_TARGET_URL environment variable is not set. The proxy cannot start.');
+    process.exit(1); // Exit if the target URL is not configured
+}
+
+
 // --- Proxy Options ---
 const options = {
-  target: 'wss://livevoicepipeline-m7rijrszka-uc.a.run.app',
+  target: targetUrl,
   changeOrigin: true,
   ws: true,
   logLevel: 'debug', // Enable detailed logging from the proxy

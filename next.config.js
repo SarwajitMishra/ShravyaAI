@@ -9,7 +9,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
       "style-src 'self' 'unsafe-inline' https:",
       "img-src 'self' data: https:",
-      "connect-src 'self' https: ws://localhost:8080",
+      "connect-src 'self' https: ws://localhost:8080 ws-proxy-709848175384.us-central1.run.app",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",
