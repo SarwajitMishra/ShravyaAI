@@ -1,5 +1,6 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ScreenShare, Check, Smartphone, Upload } from 'lucide-react';
@@ -13,6 +14,7 @@ interface ScreenshotCaptureProps {
 
 export function ScreenshotCapture({ open, onOpenChange, onCapture, onUploadRequest }: ScreenshotCaptureProps) {
   const [screenshot, setScreenshot] = useState<string | null>(null);
+  const [screenshotDimensions, setScreenshotDimensions] = useState<{width: number, height: number} | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -34,13 +36,16 @@ export function ScreenshotCapture({ open, onOpenChange, onCapture, onUploadReque
       track.stop(); // Stop the screen sharing
 
       const canvas = document.createElement('canvas');
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
+      const width = bitmap.width;
+      const height = bitmap.height;
+      canvas.width = width;
+      canvas.height = height;
       const context = canvas.getContext('2d');
       context?.drawImage(bitmap, 0, 0);
       const dataUrl = canvas.toDataURL('image/png');
       
       setScreenshot(dataUrl);
+      setScreenshotDimensions({ width, height });
       onOpenChange(true); // Re-open the dialog to show the preview
     } catch (err) {
       console.error("Error taking screenshot: ", err);
@@ -53,12 +58,14 @@ export function ScreenshotCapture({ open, onOpenChange, onCapture, onUploadReque
       onCapture(screenshot);
       onOpenChange(false);
       setScreenshot(null);
+      setScreenshotDimensions(null);
     }
   };
   
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
       setScreenshot(null);
+      setScreenshotDimensions(null);
     }
     onOpenChange(isOpen);
   };
@@ -67,6 +74,15 @@ export function ScreenshotCapture({ open, onOpenChange, onCapture, onUploadReque
     onOpenChange(false); // Close this dialog
     onUploadRequest(); // Ask the parent to open the file uploader
   };
+  
+  const handleRetake = () => {
+      setScreenshot(null);
+      setScreenshotDimensions(null);
+      // We need to close and re-open the dialog to get out of the preview state
+      onOpenChange(false);
+      // A small timeout allows the dialog to close before we ask for a new screenshot
+      setTimeout(takeScreenshot, 100);
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -78,18 +94,18 @@ export function ScreenshotCapture({ open, onOpenChange, onCapture, onUploadReque
           <div className="py-8 flex flex-col items-center justify-center text-center">
             <Smartphone className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-6">
-              To take a screenshot, please use your phone's built-in feature (usually Power + Volume Down buttons).
+              To take a screenshot, please use your phone&apos;s built-in feature (usually Power + Volume Down buttons).
             </p>
             <Button onClick={handleUploadClick}>
               <Upload className="mr-2 h-4 w-4" />
               Upload from Photos
             </Button>
           </div>
-        ) : screenshot ? (
+        ) : screenshot && screenshotDimensions ? (
           <div>
-            <img src={screenshot} alt="Screenshot preview" className="w-full h-auto rounded-md" />
+            <Image src={screenshot} alt="Screenshot preview" width={screenshotDimensions.width} height={screenshotDimensions.height} className="w-full h-auto rounded-md" />
             <DialogFooter className="mt-4">
-              <Button variant="outline" onClick={() => takeScreenshot()}>
+              <Button variant="outline" onClick={handleRetake}>
                 Retake
               </Button>
               <Button onClick={confirmScreenshot}>

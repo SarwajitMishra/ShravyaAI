@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useRef, RefObject } from "react";
+import React, { RefObject } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { AiSession, CallLog, UserProfile, Persona } from "@/lib/types";

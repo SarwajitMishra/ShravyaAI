@@ -223,7 +223,7 @@ export function useChatHistory() {
     } finally {
         setIsPending(false);
     }
-}, [user, activeSessionId, messages, activePersona, userProfile]);
+}, [user, activeSessionId, messages, userProfile]);
 
 
   const regenerateLastMessage = useCallback(async () => {
@@ -319,5 +319,3 @@ export function useChatHistory() {
     submitMessageFeedback,
   };
 }
-
-    

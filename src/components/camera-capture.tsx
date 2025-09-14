@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Camera, RefreshCw, Check, SwitchCamera } from 'lucide-react';
@@ -15,6 +16,7 @@ export function CameraCapture({ open, onOpenChange, onCapture }: CameraCapturePr
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [imageDimensions, setImageDimensions] = useState<{width: number, height: number} | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
 
   const stopCamera = useCallback(() => {
@@ -25,7 +27,6 @@ export function CameraCapture({ open, onOpenChange, onCapture }: CameraCapturePr
   }, [stream]);
 
   const startCamera = useCallback(async () => {
-    // Stop any existing stream before starting a new one
     if (stream) {
       stopCamera();
     }
@@ -49,7 +50,6 @@ export function CameraCapture({ open, onOpenChange, onCapture }: CameraCapturePr
     } else {
       stopCamera();
     }
-    // Cleanup function to stop camera when component unmounts or dialog closes
     return () => {
       stopCamera();
     };
@@ -57,7 +57,8 @@ export function CameraCapture({ open, onOpenChange, onCapture }: CameraCapturePr
 
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
-      setCapturedImage(null); // Clear image when closing
+      setCapturedImage(null);
+      setImageDimensions(null);
     }
     onOpenChange(isOpen);
   };
@@ -70,19 +71,23 @@ export function CameraCapture({ open, onOpenChange, onCapture }: CameraCapturePr
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      canvas.width = width;
+      canvas.height = height;
       const context = canvas.getContext('2d');
-      context?.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+      context?.drawImage(video, 0, 0, width, height);
       const dataUrl = canvas.toDataURL('image/png');
       setCapturedImage(dataUrl);
-      stopCamera(); // Stop camera after taking picture to show preview
+      setImageDimensions({ width, height });
+      stopCamera();
     }
   };
 
   const retakePhoto = () => {
     setCapturedImage(null);
-    startCamera(); // Restart camera to take a new picture
+    setImageDimensions(null);
+    startCamera();
   };
 
   const confirmPhoto = () => {
@@ -99,8 +104,8 @@ export function CameraCapture({ open, onOpenChange, onCapture }: CameraCapturePr
           <DialogTitle>Take a Picture</DialogTitle>
         </DialogHeader>
         <div className="relative">
-          {capturedImage ? (
-            <img src={capturedImage} alt="Captured" className="w-full h-auto rounded-md" />
+          {capturedImage && imageDimensions ? (
+            <Image src={capturedImage} alt="Captured" width={imageDimensions.width} height={imageDimensions.height} className="w-full h-auto rounded-md" />
           ) : (
             <video ref={videoRef} autoPlay playsInline className="w-full h-auto rounded-md" />
           )}
