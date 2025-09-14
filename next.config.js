@@ -22,10 +22,10 @@ const nextConfig = {
   /* config options here */
   pageExtensions: ['tsx', 'ts', 'jsx', 'js'],
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
   images: {
     remotePatterns: [
