@@ -15,23 +15,13 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -150,22 +140,19 @@ function chooseModel(ctx) {
 }
 // --- Main Chat Function (Reverted to Gemini Dev API) ---
 // functions/src/index.ts
-exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"]
-}, async (request) => {
+exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
     }
     const { uid } = request.auth;
     const { sessionId, message, context: turnContext } = request.data;
-    logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${turnContext?.persona}`);
-    logger.info(`[Web Search Debug] 2a. [Server] User prompt: "${message?.content}"`);
     if (!sessionId || !message || !turnContext) {
         throw new https_1.HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
     }
     const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
     const messagesColRef = sessionRef.collection('messages');
     const promptText = message.content?.trim() || '';
-    // 3. Persist the User's Message Immediately
+    // Persist the User's Message Immediately
     await messagesColRef.add({
         role: 'user',
         content: promptText,
@@ -177,7 +164,7 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
     });
     await sessionRef.update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
     try {
-        // 4. Prepare for AI Call: Fetch History and Prepare Multimedia
+        // Prepare for AI Call: Fetch History and Prepare Multimedia
         const historySnap = await messagesColRef.orderBy('createdAtMs', 'asc').limitToLast(30).get();
         const isFirstTurn = historySnap.empty;
         let chatHistory = formatHistoryForAI(historySnap);
@@ -188,34 +175,15 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             if (!identifiedMimeType) {
                 const unsupportedFileName = decodeURIComponent(url).split('/').pop()?.split('?')[0] || 'your file';
                 const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported.`;
-                // Immediately save and return this error without calling the AI
                 const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: firestore_1.FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: turnContext.persona });
                 return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
             }
             multimediaParts.push(part);
         }
-        // 5. Initialize the AI Model Correctly (ONE TIME)
+        // Initialize the AI Model and Chat Session
         const systemInstruction = getSystemPrompt(turnContext.persona, turnContext.lang || 'auto');
         const model = chooseModel(turnContext).model;
-        const generativeModel = genAI.getGenerativeModel({
-            model,
-            safetySettings,
-            tools: [internal_helpers_1.webSearchTool],
-            toolConfig: { functionCallingConfig: { mode: generative_ai_1.FunctionCallingMode.AUTO } },
-            systemInstruction
-        });
-        // --- Start of New Logging ---
-        const chatConfig = {
-            history: chatHistory,
-            tools: [internal_helpers_1.webSearchTool],
-            systemInstruction: {
-                role: "system",
-                parts: [{ text: systemInstruction }]
-            }
-        };
-        logger.info("[Web Search Debug] 5a. Logging System Instruction:", { systemInstruction });
-        logger.info("[Web Search Debug] 5b. Logging full chat config:", JSON.stringify(chatConfig, null, 2));
-        // --- End of New Logging ---
+        const generativeModel = genAI.getGenerativeModel({ model, safetySettings });
         const chat = generativeModel.startChat({
             history: chatHistory,
             tools: [internal_helpers_1.webSearchTool],
@@ -225,23 +193,20 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             }
         });
         const messagePayload = [...multimediaParts, { text: promptText }];
-        let response = (await chat.sendMessage(messagePayload)).response;
-        // 2. Robustly scan all candidates and parts for a function call, as you designed.
-        const calls = response.candidates?.flatMap(c => c.content?.parts ?? [])
-            .map(p => p.functionCall)
-            .filter(Boolean) ?? [];
-        if (calls.length > 0) {
-            logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { call: calls[0] });
-            const { name, args } = calls[0];
-            if (name === "performWebSearch") {
-                const query = args?.query ?? "";
+        let result = await chat.sendMessage(messagePayload);
+        let response = result.response;
+        const functionCalls = response.functionCalls();
+        if (functionCalls && functionCalls.length > 0) {
+            logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { calls: functionCalls });
+            const call = functionCalls[0];
+            if (call.name === "performWebSearch") {
+                const query = call.args?.query ?? "";
                 const results = await (0, internal_helpers_1._internalPerformWebSearch)(String(query));
-                // 3. Send the tool response with the CORRECT shape, as you identified.
                 const followUp = await chat.sendMessage([
                     {
                         functionResponse: {
                             name: "performWebSearch",
-                            response: { results }, // The object payload, not a string
+                            response: { name: "performWebSearch", content: { results } },
                         },
                     },
                 ]);
@@ -253,8 +218,8 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             logger.info(`[Web Search Debug] Model's direct response was: "${response.text()}"`);
         }
         const text = response.text() ?? "I have now completed the search. How can I help you with the results?";
-        logger.info(`[Web Search Debug] 7. [Server] Final text response: "${text}"`);
-        // 7. Persist the AI's Final Response
+        logger.info(`[Web Search Debug] FINAL RESPONSE: "${text}"`);
+        // Persist the AI's Final Response
         const modelMsgRef = await messagesColRef.add({
             role: 'assistant',
             content: text,
@@ -263,11 +228,10 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
             mode: turnContext.persona,
         });
         await sessionRef.update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
-        // 8. Trigger Smart Title Generation (in the background) if it's the first turn
+        // Trigger Smart Title Generation (in the background) if it's the first turn
         if (isFirstTurn) {
             _internalGenerateTitle(sessionId, uid);
         }
-        // 9. Return the successful response to the client
         return { messageId: modelMsgRef.id, text, modelUsed: model };
     }
     catch (err) {
@@ -570,7 +534,7 @@ exports.textToSpeech = (0, https_1.onCall)(async (request) => {
         // New: Clean the text before synthesizing
         const cleanedText = text.replace(/#\w+/g, '').replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
         const ttsRequest = {
-            input: { text: cleanedText }, // Use the cleaned text
+            input: { text: cleanedText },
             voice: selectedVoice,
             audioConfig: { audioEncoding: 'MP3' },
         };
@@ -587,3 +551,4 @@ exports.textToSpeech = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("internal", "Failed to process text-to-speech request.");
     }
 });
+

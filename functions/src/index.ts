@@ -16,7 +16,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { Readable } from "stream";
 import { Request, Response } from "express";
-import { GoogleGenerativeAI, Part, Content, HarmCategory, HarmBlockThreshold, FunctionDeclarationSchemaType, FunctionCallingMode } from "@google/generative-ai";
+import { GoogleGenerativeAI, Part, Content, HarmCategory, HarmBlockThreshold, FunctionDeclarationSchemaType, FunctionCallingMode, GenerateContentResponse } from "@google/generative-ai";
 import * as crypto from 'crypto';
 import { getCurrentEvent } from './cultural-calendar';
 import * as http from 'http';
@@ -209,9 +209,6 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
       const { uid } = request.auth;
       const { sessionId, message, context: turnContext } = request.data;
       
-      logger.info(`[Web Search Debug] 2. [Server] Received request for session: ${sessionId}, persona: ${turnContext?.persona}`);
-      logger.info(`[Web Search Debug] 2a. [Server] User prompt: "${message?.content}"`);
-
       if (!sessionId || !message || !turnContext) {
           throw new HttpsError("invalid-argument", "Missing required fields: sessionId, message, or context.");
       }
@@ -220,7 +217,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
       const messagesColRef = sessionRef.collection('messages');
       const promptText = message.content?.trim() || '';
 
-      // 3. Persist the User's Message Immediately
+      // Persist the User's Message Immediately
       await messagesColRef.add({
           role: 'user',
           content: promptText,
@@ -233,7 +230,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
       await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
       
       try {
-          // 4. Prepare for AI Call: Fetch History and Prepare Multimedia
+          // Prepare for AI Call: Fetch History and Prepare Multimedia
           const historySnap = await messagesColRef.orderBy('createdAtMs', 'asc').limitToLast(30).get();
           const isFirstTurn = historySnap.empty;
           let chatHistory = formatHistoryForAI(historySnap);
@@ -246,37 +243,16 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
               if (!identifiedMimeType) {
                   const unsupportedFileName = decodeURIComponent(url).split('/').pop()?.split('?')[0] || 'your file';
                   const errorMessage = `Sorry, the file type of "${unsupportedFileName}" is not supported.`;
-                  // Immediately save and return this error without calling the AI
                   const modelMsgRef = await messagesColRef.add({ role: 'assistant', content: errorMessage, createdAt: FieldValue.serverTimestamp(), createdAtMs: Date.now(), mode: turnContext.persona });
                   return { messageId: modelMsgRef.id, text: errorMessage, modelUsed: 'pre-check' };
               }
               multimediaParts.push(part);
           }
 
-          // 5. Initialize the AI Model Correctly (ONE TIME)
+          // Initialize the AI Model and Chat Session
           const systemInstruction = getSystemPrompt(turnContext.persona, turnContext.lang || 'auto');
           const model = chooseModel(turnContext).model;
-
-          const generativeModel = genAI.getGenerativeModel({
-            model,
-            safetySettings,
-            tools: [webSearchTool],
-            toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO}},
-            systemInstruction
-        });
-          
-          // --- Start of New Logging ---
-          const chatConfig = { 
-              history: chatHistory,
-              tools: [webSearchTool],
-              systemInstruction: {
-                  role: "system",
-                  parts: [{text: systemInstruction}]
-              }
-           };
-          logger.info("[Web Search Debug] 5a. Logging System Instruction:", { systemInstruction });
-          logger.info("[Web Search Debug] 5b. Logging full chat config:", JSON.stringify(chatConfig, null, 2));
-          // --- End of New Logging ---
+          const generativeModel = genAI.getGenerativeModel({ model, safetySettings });
 
           const chat = generativeModel.startChat({ 
             history: chatHistory,
@@ -285,29 +261,26 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
                 role: "system",
                 parts: [{text: systemInstruction}]
             }
-         });
+          });
+          
           const messagePayload = [...multimediaParts, { text: promptText }];
-        
-          let response = (await chat.sendMessage(messagePayload)).response;
+          let result = await chat.sendMessage(messagePayload);
+          let response: GenerateContentResponse = result.response;
 
-        // 2. Robustly scan all candidates and parts for a function call, as you designed.
-        const calls = response.candidates?.flatMap(c => c.content?.parts ?? [])
-            .map(p => (p as any).functionCall)
-            .filter(Boolean) ?? [];
-
-        if (calls.length > 0) {
-            logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { call: calls[0] });
-            const { name, args } = calls[0];
-            if (name === "performWebSearch") {
-                const query = (args as any)?.query ?? "";
+        const functionCalls = response.functionCalls();
+        if (functionCalls && functionCalls.length > 0) {
+            logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { calls: functionCalls });
+            
+            const call = functionCalls[0];
+            if (call.name === "performWebSearch") {
+                const query = call.args?.query ?? "";
                 const results = await _internalPerformWebSearch(String(query));
 
-                // 3. Send the tool response with the CORRECT shape, as you identified.
                 const followUp = await chat.sendMessage([
                     {
                         functionResponse: {
                             name: "performWebSearch",
-                            response: { results }, // The object payload, not a string
+                            response: { name: "performWebSearch", content: { results } },
                         },
                     },
                 ]);
@@ -319,10 +292,9 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
         }
         
         const text = response.text() ?? "I have now completed the search. How can I help you with the results?";
-
-          logger.info(`[Web Search Debug] 7. [Server] Final text response: "${text}"`);
-
-          // 7. Persist the AI's Final Response
+        logger.info(`[Web Search Debug] FINAL RESPONSE: "${text}"`);
+          
+          // Persist the AI's Final Response
           const modelMsgRef = await messagesColRef.add({
               role: 'assistant',
               content: text,
@@ -332,12 +304,11 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           });
           await sessionRef.update({ updatedAt: FieldValue.serverTimestamp() });
 
-          // 8. Trigger Smart Title Generation (in the background) if it's the first turn
+          // Trigger Smart Title Generation (in the background) if it's the first turn
           if (isFirstTurn) {
               _internalGenerateTitle(sessionId, uid);
           }
           
-          // 9. Return the successful response to the client
           return { messageId: modelMsgRef.id, text, modelUsed: model };
 
       } catch (err) {
@@ -718,5 +689,3 @@ export const textToSpeech = onCall(async (request) => {
     throw new HttpsError("internal", "Failed to process text-to-speech request.");
   }
 });
-
-    
