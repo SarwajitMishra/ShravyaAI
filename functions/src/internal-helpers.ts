@@ -9,13 +9,13 @@ export const webSearchTool = {
     functionDeclarations: [
         {
             name: "performWebSearch",
-            description: "Search the web for fresh, time-sensitive information.",
+            description: "Use this tool to get real-time information, news, and updates from the web. Essential for any queries about current events, latest developments, or topics beyond the model's May 2024 knowledge cutoff.",
             parameters: {
                 type: FunctionDeclarationSchemaType.OBJECT,
                 properties: {
                     query: {
                         type: FunctionDeclarationSchemaType.STRING,
-                        description: "Concise search query capturing the user's request."
+                        description: "A concise and targeted search query that directly addresses the user's request for current information."
                     }
                 },
                 required: ["query"]
@@ -28,6 +28,7 @@ export const webSearchTool = {
 export async function _internalPerformWebSearch(query: string): Promise<any> {
     logger.info(`[Web Search] Starting internal search with query: "${query}"`);
     if (!query) {
+        logger.warn("[Web Search] Search attempted with no query.");
         return { error: "Missing query." };
     }
 
@@ -40,15 +41,30 @@ export async function _internalPerformWebSearch(query: string): Promise<any> {
     }
 
     const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}`;
-    
+    logger.info(`[Web Search] Requesting URL (key omitted for security): https://www.googleapis.com/customsearch/v1?cx=${cx}&q=${encodeURIComponent(query)}`);
+
     try {
         const response = await fetch(url);
         const json = await response.json() as { error?: any; items?: any[] };
+
         if (!response.ok) {
-            return { error: "The Search API returned an error." };
+            // Log the detailed error from the API
+            logger.error(`[Web Search] API returned an error. Status: ${response.status}`, {
+                errorBody: json.error
+            });
+            return { error: `The Search API returned an error. Status: ${response.status}` };
         }
+
+        // Log success and the number of items found
+        logger.info(`[Web Search] Successfully received ${json.items?.length || 0} items from API.`);
+
         return (json.items || []).map((it: any) => ({ title: it.title, link: it.link, snippet: it.snippet }));
-    } catch (e) {
+    } catch (e: any) {
+        // Log the full exception
+        logger.error("[Web Search] An unexpected error occurred during the fetch operation.", {
+            errorMessage: e.message,
+            errorStack: e.stack,
+        });
         return { error: "An unexpected error occurred during the search." };
     }
 }

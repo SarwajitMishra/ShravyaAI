@@ -1,12 +1,13 @@
 
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Mic, PhoneOff, ArrowLeft, MicOff, Volume2, Loader2, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useCall } from '@/components/providers/call-provider';
+import { VoiceCallInitializer } from '@/components/logic/VoiceCallInitializer';
 
 function formatElapsedTime(seconds: number) {
     const minutes = Math.floor(seconds / 60);
@@ -16,30 +17,26 @@ function formatElapsedTime(seconds: number) {
     return `${paddedMinutes}:${paddedSeconds}`;
 }
 
-export default function VoicePage() {
+// A simple fallback component to show while Suspense is waiting
+function VoicePageContent() {
     const { isCallActive, connectionStatus, setIsPipViewActive, activePersona, isMuted, toggleMute, endCall, elapsedTime } = useCall();
-    const router = useRouter();
-
-    useEffect(() => {
-        // If we land on this page and there's no active call, redirect to chat.
-        if (!isCallActive) {
-            router.push('/chat');
-        }
-        // When we are on the main voice page, ensure PiP is not active.
-        setIsPipViewActive(false);
-
-        // When the component unmounts (e.g., user navigates away), activate PiP view.
-        return () => {
-            if (isCallActive) { // isCallActive will be true during reconnects
-                setIsPipViewActive(true);
-            }
-        };
-    }, [isCallActive, setIsPipViewActive, router]);
+    const router = useRouter(); 
 
     const goBackToChat = () => {
-        setIsPipViewActive(true);
+        setIsPipViewActive(true); // Explicitly enable PiP mode before navigating
         router.push('/chat');
     };
+
+    // Automatically go back to chat if the call is ended from here
+    useEffect(() => {
+        if (connectionStatus === 'disconnected') {
+            const timer = setTimeout(() => {
+                router.push('/chat');
+            }, 1500); // Wait 1.5 seconds before redirecting
+            return () => clearTimeout(timer);
+        }
+    }, [connectionStatus, router]);
+
 
     const renderCallStatus = () => {
         switch (connectionStatus) {
@@ -80,7 +77,14 @@ export default function VoicePage() {
                     </>
                 );
             default:
-                return null;
+                return (
+                     <>
+                        <div className={cn("rounded-full h-48 w-48 border-4 border-muted-foreground/50 flex items-center justify-center transition-all duration-300")}>
+                            <Loader2 className={cn("h-20 w-20 transition-all duration-300 text-muted-foreground animate-spin")} />
+                        </div>
+                        <p className="text-muted-foreground mt-8">Getting ready...</p>
+                    </>
+                );
         }
     }
 
@@ -101,11 +105,21 @@ export default function VoicePage() {
                 <Button variant="secondary" size="lg" className="rounded-full p-4" disabled={!isCallActive}>
                     <Volume2 className="h-6 w-6" />
                 </Button>
-                <Button variant="destructive" size="lg" className="rounded-full" onClick={() => endCall()}>
+                <Button variant="destructive" size="lg" className="rounded-full" onClick={() => endCall(false)}>
                     <PhoneOff className="mr-2 h-5 w-5" />
                     End Call
                 </Button>
             </div>
         </div>
     );
+}
+
+
+export default function VoicePage() {
+    return (
+        <Suspense fallback={<div className="flex h-screen w-full items-center justify-center"><Loader2 className="h-12 w-12 animate-spin" /></div>}>
+            <VoiceCallInitializer />
+            <VoicePageContent />
+        </Suspense>
+    )
 }

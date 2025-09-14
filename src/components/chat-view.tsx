@@ -1,4 +1,3 @@
-
 "use client";
 
 import { PipCallView } from '@/components/providers/pip-call-view';
@@ -11,6 +10,8 @@ import { ScreenshotCapture } from "@/components/screenshot-capture";
 import { FileUploader } from '@/components/file-uploader';
 import { useCall } from '@/components/providers/call-provider'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns';
+import { callDbg } from '@/lib/call-debug';
+
 
 import {
   DropdownMenu,
@@ -142,7 +143,7 @@ function formatElapsedTime(seconds: number) {
 
 export function ChatClient() {
   const { user, loading, logout } = useAuth();
-  const { isCallActive, activeCallSessionId, startCall, activePersona: activeCallPersona, elapsedTime } = useCall();
+  const { isCallActive, activeCallSessionId, startCall, activePersona: activeCallPersona, elapsedTime, setIsPipViewActive } = useCall();
   const isLoggedIn = !!user;
   const isGuest = user?.isAnonymous === true;
   const { toast } = useToast();
@@ -212,6 +213,12 @@ export function ChatClient() {
   useEffect(() => {
     scrollToBottom();
   }, [activeConversation?.messages, isPending]);
+
+  useEffect(() => {
+    callDbg.log('CP-CC-01', 'ChatClient mounted');
+    return () => callDbg.log('CP-CC-99', 'ChatClient unmounted');
+  }, []);
+  
   
   // Load guest prompt dismissals from localStorage on mount
   useEffect(() => {
@@ -289,11 +296,21 @@ const handleFileUpload = async (files: File[]) => {
   };
 
   const handleStartCall = () => {
-    if (activeConversation) {
-      // This sets the global state and tells the voice page what to do
-      startCall(activeConversation.id, activeConversation.mode);
-      router.push('/voice');
+    if (!activeConversation) {
+      return toast({
+        variant: "destructive",
+        title: "No Active Chat",
+        description: "Please send at least one message in a chat before starting a call.",
+      });
     }
+    
+    // Navigate to the voice page with session info in the URL
+    router.push(`/voice?sessionId=${activeConversation.id}&persona=${activeConversation.mode}`);
+  };
+
+  const handleNavigateToVoice = () => {
+    setIsPipViewActive(false);
+    router.push('/voice');
   };
 
   const handleRemoveStagedImage = (index: number) => {
@@ -734,13 +751,13 @@ const renderMessagesWithDateSeparators = () => {
                                         <SidebarMenu>
                                             {isCallActive && (
                                                 <SidebarMenuItem>
-                                                    <Link href="/voice" className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 w-full">
-                                                        <Phone className="h-4 w-4 text-green-500 animate-pulse" />
+                                                    <div onClick={handleNavigateToVoice} className="flex items-center gap-3 p-2 rounded-md hover:bg-accent/50 w-full cursor-pointer">
+                                                      <Phone className="h-4 w-4 text-green-500 animate-pulse" />
                                                         <div className="flex flex-col flex-1 truncate">
-                                                            <span className="text-sm font-medium truncate">{activeCallPersona}</span>
-                                                            <span className="text-xs text-muted-foreground">{formatElapsedTime(elapsedTime)}</span>
-                                                        </div>
-                                                    </Link>
+                                                          <span className="text-sm font-medium truncate">{activeCallPersona}</span>
+                                                      <span className="text-xs text-muted-foreground">{formatElapsedTime(elapsedTime)}</span>
+                                                    </div>
+                                                  </div>
                                                 </SidebarMenuItem>
                                             )}
                                             {callHistory.map((call) => (
@@ -754,7 +771,7 @@ const renderMessagesWithDateSeparators = () => {
                                                             <span className="text-xs text-muted-foreground">
                                                                 {call.startTime && formatCallTimestamp(call.startTime)}
                                                             </span>
-                                                            <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => startCall(call.sessionId, call.persona)}>
+                                                            <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => router.push(`/voice?sessionId=${call.sessionId}&persona=${call.persona}`)}>
                                                                 Call Back
                                                             </Button>
                                                         </div>
@@ -1025,7 +1042,6 @@ const renderMessagesWithDateSeparators = () => {
             </div>
         </footer>
       </div>
-    <PipCallView />
     </div>
   );
 }

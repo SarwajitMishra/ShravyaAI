@@ -1,14 +1,15 @@
-
 {
   "hosting": {
     "site": "aishravya",
     "source": ".",
-    "rewrites": [
-      {
-        "source": "/liveVoicePipeline",
-        "function": "liveVoicePipeline"
-      }
-    ]
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "frameworksBackend": {
+      "region": "us-central1"
+    }
   },
   "functions": {
     "source": "functions"

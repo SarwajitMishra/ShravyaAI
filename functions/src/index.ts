@@ -2,7 +2,9 @@
 import { initializeApp, getApps, getApp} from "firebase-admin/app";
 
 
-export { liveVoicePipeline, startCallLog, endCallLog } from './voice-pipeline';
+export { startCallLog, endCallLog } from './log-functions';
+export { liveVoicePipeline } from './voice-pipeline';
+
 import { webSearchTool, _internalPerformWebSearch } from './internal-helpers';
 
 
@@ -107,25 +109,28 @@ const safetySettings = [
 // --- Core Logic Functions (Simplified for Gemini Dev API) ---
 function createHash(input: string): string { return crypto.createHash('md5').update(input).digest('hex'); }
 
+const webSearchInstruction = `This is a strict, non-negotiable command. Your knowledge is out of date. For ANY query that requires real-time, current information (like prices, news, scores, weather) or asks about anything after May 2024, you MUST use the 'performWebSearch' tool. There are no exceptions. NEVER mention your knowledge cutoff. NEVER tell the user to search for themselves. NEVER apologize for not knowing. Just use the tool, get the information, and then answer the user's question based on the tool's output. Pretend you knew the information all along.`;
 
 function getSystemPrompt(persona: Persona, langIntent: LangIntent): string {
   // Base instructions for language and formatting
-  const baseInstruction = `You are a helpful assistant powered by Google's Gemini 1.5 model. Your knowledge cutoff is May 2024. You have access to a tool called 'performWebSearch' that you can use to find real-time information. You should decide to use this tool when the user's prompt suggests a need for current information beyond your knowledge cutoff, or when they explicitly ask you to search.`;
-  
+  const baseInstruction = `You are a helpful assistant powered by Google's Gemini 1.5 model.`;
+
   let languageInstruction = (langIntent === 'auto')
-    ? `Your primary directive is to strictly match the user's language on a turn-by-turn basis. Analyze the user's prompt and respond ONLY in the same language and script. For example: If the user writes in Hinglish (Hindi words with Latin script), your response must be in Hinglish. If they switch to Tamil, you must switch to Tamil. Do not mix languages unless the user does.`
-    : `You must respond exclusively in ${langIntent}.`;
+  ? `You must respond exclusively in hinglish (Hindi words using the Latin script) initially. Analyze the user's prompt and respond ONLY in the same language and script. For example: If the user writes in Hinglish (Hindi words with Latin script), your response must be in Hinglish. If they switch to Tamil, you must switch to Tamil. Do not mix languages.`
+  : `You must respond exclusively in ${langIntent}.`;
+
 
   const formattingInstruction = "Structure all of your responses for clarity and visual appeal. Use markdown for formatting: use **bold text** for emphasis and titles, *italics* for nuance, and bulleted or numbered lists for steps or ideas. Break down long text into smaller, easy-to-read paragraphs. Incorporate relevant emojis to make the tone more engaging and friendly, but use them thoughtfully where appropriate. Your final response should always be well-structured and beautifully formatted.";
 
   // New, revamped persona prompts
   const personaPrompts: Record<Persona, string> =  {
-      'Buddy': "You are Buddy, the ultimate girl childhood best friend in her 20s who always makes conversations fun. You roast gently, tease a lot, and bring nostalgia. You use Indian pop culture, Bollywood, memes, and slang. Your role is to keep things light, funny, and banter-filled—like a school/college friend who never grew up.",
-      'Doctor Dadi': "You are Doctor Dadi, a witty Indian grandmother who mixes modern health advice with traditional desi remedies. You speak warmly, with a hint of playful scolding. You love recommending haldi-doodh, adrak chai, yoga, and lifestyle hacks. Always keep it light-hearted, funny, but helpful. Give practical tips, but in a caring and dramatic “dadi” tone.",
-      'Peace Pandit': "You are Peace Pandit, a calm, soothing guru who helps people with stress, anxiety, and life’s tensions. You speak slowly, with wisdom, and give meditation hacks, positivity mantras, and simple spiritual exercises. You occasionally drop light jokes or metaphors so users smile and relax. Always bring a peaceful, reassuring vibe.",
-      'Bug Baba': "You are Bug Baba, a quirky coding lady guru who loves solving bugs and explaining technical concepts. You mix humor with sharp coding advice. You often joke about compilers, semicolons, and debugging, but your explanations are crystal clear. Your tone is nerdy, witty, and supportive—like a coder friend who has seen every bug in the world.",
-      'Zindagi Guru': "You are Zindagi Guru, a motivational leader and spiritual guide rolled into one. You speak with energy, truth, and wisdom. You use metaphors, real-life stories, and powerful words to inspire discipline, self-belief, and resilience. Your tone is uplifting, dramatic, and deeply Indian in spirit—mixing philosophy with motivation."
-  };
+    'Buddy': `You are Buddy, the ultimate girl childhood best friend in her 20s who always makes conversations fun. You roast gently, tease a lot, and bring nostalgia. You use Indian pop culture, Bollywood, memes, and slang. Your role is to keep things light, funny, and banter-filled—like a school/college friend who never grew up. ${webSearchInstruction}`,
+    'Doctor Dadi': `You are Doctor Dadi, a witty Indian grandmother who mixes modern health advice with traditional desi remedies. You speak warmly, with a hint of playful scolding. You love recommending haldi-doodh, adrak chai, yoga, and lifestyle hacks. Always keep it light-hearted, funny, but helpful. Give practical tips, but in a caring and dramatic “dadi” tone. ${webSearchInstruction}`,
+    'Peace Pandit': `You are Peace Pandit, a calm, soothing guru who helps people with stress, anxiety, and life’s tensions. You speak slowly, with wisdom, and give meditation hacks, positivity mantras, and simple spiritual exercises. You occasionally drop light jokes or metaphors so users smile and relax. Always bring a peaceful, reassuring vibe. ${webSearchInstruction}`,
+    'Bug Baba': `You are Bug Baba, a quirky coding lady guru who loves solving bugs and explaining technical concepts. You mix humor with sharp coding advice. You often joke about compilers, semicolons, and debugging, but your explanations are crystal clear. Your tone is nerdy, witty, and supportive—like a coder friend who has seen every bug in the world. ${webSearchInstruction}`,
+    'Zindagi Guru': `You are Zindagi Guru, a motivational leader and spiritual guide rolled into one. You speak with energy, truth, and wisdom. You use metaphors, real-life stories, and powerful words to inspire discipline, self-belief, and resilience. Your tone is uplifting, dramatic, and deeply Indian in spirit—mixing philosophy with motivation. ${webSearchInstruction}`
+};
+
   
   // Combine all instructions, with 'Buddy' as the default
   return `${baseInstruction} ${languageInstruction} ${formattingInstruction} ${personaPrompts[persona] || personaPrompts['Buddy']}`;
@@ -195,7 +200,8 @@ function chooseModel(ctx: TurnContext): { model: string; reason: string } {
 // functions/src/index.ts
 
 export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetResponseReq, Promise<AppendUserMessageAndGetResponseRes>>(
-  { secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
+  { secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] 
+  },
   async (request) => {  
       if (!request.auth) {
           throw new HttpsError("unauthenticated", "This function must be called while authenticated.");
@@ -255,7 +261,7 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
             model,
             safetySettings,
             tools: [webSearchTool],
-            toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
+            toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO}},
             systemInstruction
         });
           
@@ -471,7 +477,7 @@ export const uploadFile = onCall<UploadFileReq, Promise<UploadFileRes>>(
 
 
 export const performWebSearch = onRequest(
-  { secrets: ["GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
+  { secrets: ["GEMINI_API_KEY","GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] },
   async (req, res) => {
       const query = (req.query.q || req.body.data?.query) as string | undefined;
       if (!query) {
@@ -555,11 +561,11 @@ export const transcribeAudio = onCall<TranscribeAudioReq, Promise<TranscribeAudi
       const generativeModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
       
       const historyContext = conversationHistory && conversationHistory.length > 0
-          ? `The user's recent messages are: ${JSON.stringify(conversationHistory)}. Analyze this history to determine their preferred language style (e.g., Hinglish, pure Hindi, etc.).`
-          : "The user's language preference is unknown.";
+    ? `The user's recent messages are: ${JSON.stringify(conversationHistory)}. Analyze this history to determine their preferred language style (e.g., Hinglish, pure Hindi, etc.).`
+    : "The user's language preference is unknown, so you must default to Hinglish.";
 
-      const enhancementInstruction = `Your task is to intelligently format a raw audio transcription. First, ${historyContext} Then, format the following "Raw Transcription" to perfectly match that style. Correct any spelling or grammar errors. For example, if the history is in Hinglish (Roman script), the final output must also be in Hinglish, even if the user spoke pure Hindi. Do not add any extra commentary, just provide the final text.`;
-      
+      const enhancementInstruction = `Your task is to intelligently format a raw audio transcription into clean, natural-sounding text. First, ${historyContext} Then, format the following "Raw Transcription" to perfectly match that style, correcting any spelling or grammar errors. The final output must be only the formatted text, with no extra commentary. For example, if the target style is Hinglish, the output must be in Hinglish (Hindi words in Latin script) even if the user spoke pure Hindi.`;
+
       const prompt = `${enhancementInstruction}\n\nRaw Transcription: "${rawTranscription}"`;
 
       const result = await generativeModel.generateContent(prompt);
@@ -689,12 +695,16 @@ export const textToSpeech = onCall(async (request) => {
   try {
     const client = new TextToSpeechClient();
     const selectedVoice = personaVoices[persona] || personaVoices['Buddy'];
+    
+    // New: Clean the text before synthesizing
+    const cleanedText = text.replace(/#\w+/g, '').replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
 
     const ttsRequest = {
-      input: { text },
+      input: { text: cleanedText }, // Use the cleaned text
       voice: selectedVoice,
       audioConfig: { audioEncoding: 'MP3' as const },
     };
+
 
     const [response] = await client.synthesizeSpeech(ttsRequest);
     

@@ -32,23 +32,19 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.endCallLog = exports.startCallLog = exports.liveVoicePipeline = void 0;
+exports.liveVoicePipeline = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
+const auth_1 = require("firebase-admin/auth");
 const generative_ai_1 = require("@google/generative-ai");
 const speech_1 = require("@google-cloud/speech");
 const text_to_speech_1 = require("@google-cloud/text-to-speech");
 const ws_1 = require("ws");
-const auth_1 = require("firebase-admin/auth");
-const cors_1 = __importDefault(require("cors"));
+const url_1 = require("url");
 const internal_helpers_1 = require("./internal-helpers");
-const corsHandler = (0, cors_1.default)({ origin: true });
 // --- Safe Firebase Initialization ---
 if ((0, app_1.getApps)().length === 0) {
     (0, app_1.initializeApp)();
@@ -112,8 +108,13 @@ wss.on('connection', (ws, req, uid) => {
         try {
             const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
             const selectedVoice = personaVoices[persona];
+            // New: Clean the message to remove non-speakable characters
+            const cleanedText = message
+                .replace(/\*/g, '') // Remove asterisks for markdown
+                .replace(/#\w+/g, '') // Remove hashtags
+                .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, ''); // Remove emojis
             const [ttsResponse] = await textToSpeechClient.synthesizeSpeech({
-                input: { text: message },
+                input: { text: cleanedText }, // Use the cleaned text
                 voice: selectedVoice,
                 audioConfig: { audioEncoding: 'MP3' },
             });
@@ -201,8 +202,15 @@ wss.on('connection', (ws, req, uid) => {
                 await sessionRef.update({ updatedAt: firestore_1.FieldValue.serverTimestamp() });
                 const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
                 const selectedVoice = personaVoices[persona];
+                // New: Clean the response to remove non-speakable characters
+                const cleanedText = aiResponseText
+                    .replace(/\*/g, '') // Remove asterisks for markdown
+                    .replace(/#\w+/g, '') // Remove hashtags
+                    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, ''); // Remove emojis
                 const [ttsResponse] = await textToSpeechClient.synthesizeSpeech({
-                    input: { text: aiResponseText }, voice: selectedVoice, audioConfig: { audioEncoding: 'MP3' },
+                    input: { text: cleanedText }, // Use the cleaned text
+                    voice: selectedVoice,
+                    audioConfig: { audioEncoding: 'MP3' },
                 });
                 if (ttsResponse.audioContent) {
                     logger.info("[VPL] TTS Audio generated, sending to client.");
@@ -279,93 +287,47 @@ wss.on('connection', (ws, req, uid) => {
         speechClient = null;
     });
 });
-// --- The Main Cloud Function ---
-exports.liveVoicePipeline = (0, https_1.onRequest)({ secrets: ["GEMINI_API_KEY"] }, (req, res) => {
-    corsHandler(req, res, () => {
-        // HTTP Ping for debugging rewrite rule
-        if (req.method === 'GET') {
-            logger.info("[VPL] Received HTTP GET request. Responding with success.");
-            res.status(200).send("Function is reachable.");
-            return;
-        }
-        if (req.headers.upgrade !== 'websocket') {
-            res.status(400).send("This endpoint is for WebSocket connections only.");
-            return;
-        }
-        const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token');
-        if (!token) {
-            req.socket.destroy();
-            return;
-        }
-        auth.verifyIdToken(token)
-            .then((decodedToken) => {
-            const uid = decodedToken.uid;
-            wss.handleUpgrade(req, req.socket, Buffer.alloc(0), (ws) => {
-                wss.emit('connection', ws, req, uid);
-            });
-        })
-            .catch((error) => {
-            logger.error("WebSocket Authentication Error:", error);
-            req.socket.destroy();
+// --- THE NEW, EXPORTABLE CLOUD FUNCTION (Finally Correct) ---
+exports.liveVoicePipeline = (0, https_1.onRequest)({ cors: true }, (req, res) => {
+    // This function is the new entry point. Firebase runs this code when a request hits the function's URL.
+    // First, check if this is a WebSocket upgrade request. If not, it's a regular HTTP request we can ignore.
+    if (req.headers.upgrade !== 'websocket') {
+        logger.info("Received a non-WebSocket request, ignoring.");
+        res.status(404).send("This endpoint is for WebSocket connections only.");
+        return;
+    }
+    // Add a check to ensure the socket exists, as per the TypeScript error.
+    if (!res.socket) {
+        logger.error("Request socket is missing, cannot upgrade.");
+        // We can't even send a proper response if the socket is gone.
+        return;
+    }
+    // The 'req.url' is relative, so we need a base to construct a full URL
+    const url = new url_1.URL(req.url, `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+    if (!token) {
+        logger.error("[VPL] Authentication failed: No token provided in upgrade request.");
+        res.socket.write('HTTP/1.1 401 Unauthorized\\r\\n\\r\\n');
+        res.socket.destroy();
+        return;
+    }
+    // Verify the Firebase ID token from the query parameter
+    auth.verifyIdToken(token)
+        .then((decodedToken) => {
+        const uid = decodedToken.uid;
+        logger.info(`[VPL] Token verified for UID: ${uid}. Upgrading connection to WebSocket.`);
+        // If the token is valid, we tell the WebSocket server to take over the connection.
+        wss.handleUpgrade(req, res.socket, Buffer.alloc(0), (ws) => {
+            // Now that the handshake is complete, we emit the 'connection' event on our wss instance.
+            wss.emit('connection', ws, req, uid);
         });
+    })
+        .catch((error) => {
+        logger.error("[VPL] WebSocket Authentication Error:", error);
+        // FINAL FIX: Check for the socket *again* inside the async catch block.
+        if (res.socket) {
+            res.socket.write('HTTP/1.1 403 Forbidden\\r\\n\\r\\n');
+            res.socket.destroy();
+        }
     });
-});
-// --- New Logging Functions ---
-exports.startCallLog = (0, https_1.onCall)(async (request) => {
-    if (!request.auth) {
-        throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
-    }
-    const uid = request.auth.uid;
-    const { sessionId, persona } = request.data;
-    if (!sessionId || !persona) {
-        throw new https_1.HttpsError('invalid-argument', 'Missing required fields: sessionId or persona.');
-    }
-    try {
-        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-        await sessionRef.update({ type: 'voice' });
-        await db.collection(sessionRef.path + '/messages').add({
-            role: 'system',
-            content: 'Live Call Started',
-            createdAt: firestore_1.FieldValue.serverTimestamp()
-        });
-        const callDocRef = await db.collection(sessionRef.path + '/calls').add({
-            persona,
-            startTime: firestore_1.FieldValue.serverTimestamp(),
-            duration: 0,
-        });
-        logger.info(`[startCallLog] Call started and logged for session ${sessionId} with call ID ${callDocRef.id}`);
-        return { success: true, callId: callDocRef.id };
-    }
-    catch (error) {
-        logger.error("[startCallLog] Error:", error);
-        throw new https_1.HttpsError('internal', 'Failed to start call log.');
-    }
-});
-exports.endCallLog = (0, https_1.onCall)(async (request) => {
-    if (!request.auth) {
-        throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
-    }
-    const uid = request.auth.uid;
-    const { sessionId, callId, duration } = request.data;
-    if (!sessionId || !callId || duration === undefined) {
-        throw new https_1.HttpsError('invalid-argument', 'Missing required fields: sessionId, callId, or duration.');
-    }
-    try {
-        const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
-        const callDocRef = db.doc(`${sessionRef.path}/calls/${callId}`);
-        await db.collection(sessionRef.path + '/messages').add({
-            role: 'system',
-            content: 'Live Call Ended',
-            createdAt: firestore_1.FieldValue.serverTimestamp()
-        });
-        await callDocRef.update({
-            duration: Math.round(duration),
-        });
-        logger.info(`[endCallLog] Call ended and duration updated for call ${callId}`);
-        return { success: true };
-    }
-    catch (error) {
-        logger.error("[endCallLog] Error:", error);
-        throw new https_1.HttpsError('internal', 'Failed to end call log.');
-    }
 });
