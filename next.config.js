@@ -11,7 +11,7 @@ const productionSecurityHeaders = [
       "style-src 'self' 'unsafe-inline' https:",
       "img-src 'self' data: https:",
       // This is the production-only connect-src. No localhost.
-      "connect-src 'self' https: wss://ws-proxy-709848175384.us-central1.run.app", 
+      "connect-src 'self' https: ws-proxy-709848175384.us-central1.run.app", 
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",
@@ -23,7 +23,6 @@ const productionSecurityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /* config options here */
-  pageExtensions: ['tsx', 'ts', 'jsx', 'js'],
   typescript: {
     ignoreBuildErrors: false,
   },
