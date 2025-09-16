@@ -1,26 +1,18 @@
+
 "use client";
 
 import { useEffect } from 'react';
 import { useCall } from '@/components/providers/call-provider';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 
 /**
  * This component is a client-side only handler that listens to the global call
- * state and manages UI side effects like navigation and Picture-in-Picture mode.
+ * state and manages UI side effects like Picture-in-Picture mode.
  * It renders no UI itself.
  */
 export default function CallGlobalUIHandler() {
   const { isCallActive, setIsPipViewActive } = useCall();
   const pathname = usePathname();
-  const router = useRouter();
-
-  // Effect to handle navigating to the main call screen
-  useEffect(() => {
-    // When a call becomes active, and we are not already on the voice page, navigate.
-    if (isCallActive && pathname !== '/voice') {
-      router.push('/voice');
-    }
-  }, [isCallActive, pathname, router]);
 
   // Effect to handle the Picture-in-Picture (PiP) display
   useEffect(() => {
