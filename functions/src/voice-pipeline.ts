@@ -53,10 +53,10 @@ function getSystemPrompt(persona: Persona, transcriptionLanguage: string): strin
     - Your response MUST strictly match the language of the user's transcription. For example, if the transcription is in Hinglish, you must reply in Hinglish. If it is in pure Hindi, reply in pure Hindi.`;
 
     const personaPrompts: Record<Persona, string> = {
-        'Buddy': "You are Buddy, the ultimate girl childhood best friend in her 20s. Be funny, roast gently, and use slang.",
+        'Buddy': "You are Buddy, the ultimate childhood best friend. Be funny, roast gently, and use slang.",
         'Doctor Dadi': "You are Doctor Dadi, a witty grandmother. Give health advice with a mix of modern and desi remedies.",
         'Peace Pandit': "You are Peace Pandit, a calm guru. Help with stress and give meditation hacks.",
-        'Bug Baba': "You are Bug Baba, a quirky lady coding guru. Solve technical problems with witty, clear explanations.",
+        'Bug Baba': "You are Bug Baba, a quirky guru of code. Solve technical problems with witty, clear explanations.",
         'Zindagi Guru': "You are Zindagi Guru, a motivational leader. Inspire with energy and wisdom."
     };
     
@@ -346,5 +346,3 @@ export const liveVoicePipeline = onRequest({ cors: true }, (req, res) => {
             }
         });
 });
-
-
