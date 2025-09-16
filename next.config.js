@@ -1,7 +1,8 @@
 
 // @ts-check
 
-const securityHeaders = [
+// Define a separate, strict policy for PRODUCTION.
+const productionSecurityHeaders = [
   {
     key: 'Content-Security-Policy',
     value: [
@@ -9,7 +10,8 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
       "style-src 'self' 'unsafe-inline' https:",
       "img-src 'self' data: https:",
-      "connect-src 'self' https: ws://localhost:8080 ws-proxy-709848175384.us-central1.run.app",
+      // This is the production-only connect-src. No localhost.
+      "connect-src 'self' https: wss://ws-proxy-709848175384.us-central1.run.app", 
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",
@@ -45,13 +47,18 @@ const nextConfig = {
     ],
   },
   async headers() {
-    return [
-      {
-        // Apply these headers to all routes in your application.
-        source: '/:path*',
-        headers: securityHeaders,
-      },
-    ];
+    // ONLY apply the security headers in the PRODUCTION environment.
+    if (process.env.NODE_ENV === 'production') {
+      return [
+        {
+          source: '/:path*',
+          headers: productionSecurityHeaders,
+        },
+      ];
+    }
+    
+    // For local development, return an empty array, leaving it untouched.
+    return [];
   },
 };
 

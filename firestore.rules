@@ -3,22 +3,23 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Users can create, read, and update their own profile.
-    // They cannot see or edit other users' profiles.
-    match /aiProfiles/{userId} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+    // AI Profiles: Users can only access their own profile.
+    match /aiProfiles/{uid} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
       allow create: if request.auth != null;
 
-      // Users can manage their own chat sessions.
+      // Sessions: Users can manage their own sessions.
       match /sessions/{sessionId} {
-        allow read, write, create, delete: if request.auth != null && request.auth.uid == userId;
+        allow read, write, create, delete: if request.auth != null && request.auth.uid == uid;
 
-        // Users can manage the messages and call logs within their own sessions.
+        // Messages: Users can manage messages within their own sessions.
         match /messages/{messageId} {
-          allow read, write, create, delete: if request.auth != null && request.auth.uid == userId;
+          allow read, write, create, delete: if request.auth != null && request.auth.uid == uid;
         }
+
+        // Calls: Users can manage calls within their own sessions.
         match /calls/{callId} {
-           allow read, write, create, delete: if request.auth != null && request.auth.uid == userId;
+            allow read, write, create, delete: if request.auth != null && request.auth.uid == uid;
         }
       }
     }

@@ -19,7 +19,7 @@ type CallContextType = {
   activePersona: string | null;
   isMuted: boolean;
   startCall: (sessionId: string, persona: string) => void;
-  endCall: () => void;
+  endCall: () => void; // Simplified: endCall is always a "hard" end now.
   toggleMute: () => void;
   elapsedTime: number;
 };
@@ -80,30 +80,43 @@ export function CallProvider({ children }: { children: ReactNode }) {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
-  const ab = new ArrayBuffer(u8.byteLength);
-  new Uint8Array(ab).set(u8);
-  return ab;
-}
+  // *** NEW CORE LOGIC ***
+  // This effect declaratively controls the PiP view based on the URL and call state.
+  useEffect(() => {
+    if (isCallActive && pathname !== '/voice') {
+      // If a call is active and we are NOT on the voice page, enable PiP.
+      setIsPipViewActive(true);
+    } else {
+      // Otherwise (no call active, or we are on the voice page), disable PiP.
+      setIsPipViewActive(false);
+    }
+  }, [isCallActive, pathname]);
+  // *** END NEW CORE LOGIC ***
 
-const playAudio = useCallback(async (audioBytes: Uint8Array) => {
-  if (!audioContextRef.current && typeof window !== 'undefined') {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+  function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+    const ab = new ArrayBuffer(u8.byteLength);
+    new Uint8Array(ab).set(u8);
+    return ab;
   }
-  const audioContext = audioContextRef.current;
-  if (!audioContext) return;
 
-  try {
-    const arrayBuffer: ArrayBuffer = toArrayBuffer(audioBytes);
-    const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    const source = audioContext.createBufferSource();
-    source.buffer = decodedBuffer;
-    source.connect(audioContext.destination);
-    source.start(0);
-  } catch (error) {
-    console.error("Error decoding or playing audio:", error);
-  }
-}, []);
+  const playAudio = useCallback(async (audioBytes: Uint8Array) => {
+    if (!audioContextRef.current && typeof window !== 'undefined') {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const audioContext = audioContextRef.current;
+    if (!audioContext) return;
+
+    try {
+      const arrayBuffer: ArrayBuffer = toArrayBuffer(audioBytes);
+      const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const source = audioContext.createBufferSource();
+      source.buffer = decodedBuffer;
+      source.connect(audioContext.destination);
+      source.start(0);
+    } catch (error) {
+      console.error("Error decoding or playing audio:", error);
+    }
+  }, []);
 
 
   const stopRecording = useCallback(() => {
@@ -137,8 +150,9 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     }
   }, [stopRecording]);
 
-  const endCall = useCallback(async (forceRedirect = true) => {
-    console.log("===== CHKPT 7: endCall function EXECUTED =====");
+  // Simplified endCall - it only does a "hard" end.
+  const endCall = useCallback(async () => {
+    console.log('[CallProvider] Hard ending: Terminating call session.');
     callEndedIntentionallyRef.current = true;
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     retryCountRef.current = 0;
@@ -152,7 +166,7 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
         if (socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ event: 'stop' }));
         }
-        socketRef.current.onclose = null;
+        socketRef.current.onclose = null; 
         socketRef.current.close(1000, "Call ended by user");
         socketRef.current = null;
     }
@@ -168,18 +182,15 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
                     callId: activeCallLogIdRef.current,
                     duration,
                 });
-                console.log('[CallProvider] Successfully logged call end.');
             } catch(err) {
                 console.error("[CallProvider] endCallLog function failed:", err);
             }
-        } else {
-            console.warn('[CallProvider] Skipping call end log due to invalid duration:', duration);
         }
     }
 
     stopRecording();
     setConnectionStatus('disconnected');
-    setIsPipViewActive(false);
+    setIsPipViewActive(false); // Ensure PiP is off when call is truly ended
     setActiveCallSessionId(null);
     setActivePersona(null);
     callStartTimeRef.current = null;
@@ -187,105 +198,81 @@ const playAudio = useCallback(async (audioBytes: Uint8Array) => {
     setElapsedTime(0);
     activeCallSessionIdRef.current = null;
 
-    if (forceRedirect && pathname !== '/chat') router.push('/chat');
+    if (pathname !== '/chat') router.push('/chat');
 }, [stopRecording, router, pathname]);
 
 
 const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
-  console.log("===== CHKPT 5: connectToWebSocket function EXECUTED =====");
 
-  if (!user || typeof window === 'undefined') {
-      console.log('[CLIENT LOG] User or window is not available. Aborting connection.');
-      return;
-  }
+  if (!user || typeof window === 'undefined') return;
+
   setConnectionStatus(retryCountRef.current > 0 ? 'reconnecting' : 'connecting');
-  console.log(`[CLIENT LOG] Connection status set to: ${retryCountRef.current > 0 ? 'reconnecting' : 'connecting'}`);
-
+  
   const token = await user.getIdToken();
-
   const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL;
-  console.log(`[CLIENT LOG] Environment variable NEXT_PUBLIC_WS_URL: ${wsBaseUrl}`);
-
   if (!wsBaseUrl) {
-    console.error("[CLIENT LOG] FATAL: NEXT_PUBLIC_WS_URL is not defined. The application cannot connect to the call service.");
-    endCall(false);
+    console.error("FATAL: NEXT_PUBLIC_WS_URL is not defined.");
+    endCall();
     return;
   }
 
   const websocketUrl = `${wsBaseUrl}?token=${token}`;
-  console.log(`[CLIENT LOG] Attempting to connect to WebSocket at: ${websocketUrl}`);
-
   const socket = new WebSocket(websocketUrl);
   socketRef.current = socket;
 
   socket.onopen = () => {
-    console.log("===== CHKPT 6: WebSocket onopen event FIRED. Connection established. =====");
-    const isReconnect = retryCountRef.current > 0;
     retryCountRef.current = 0;
     setConnectionStatus('connected');
-
-    const startMessage = {
+    socket.send(JSON.stringify({
         event: 'start',
         persona: persona,
         sessionId: sessionId,
-        isReconnect: isReconnect
-    };
-    console.log('[CLIENT LOG] Sending "start" message:', startMessage);
-    socket.send(JSON.stringify(startMessage));
+        isReconnect: retryCountRef.current > 0
+    }));
     startRecording();
   };
 
   socket.onmessage = async (event) => {
-    console.log('[CLIENT LOG] WebSocket onmessage event fired. Received data:', event.data);
     try {
       const msg = JSON.parse(event.data);
       if (msg.event === 'audio' && msg.data) {
-        const audioBytes = base64ToBytes(msg.data as string);
-        await playAudio(audioBytes);
-      } else {
-        console.log('[CLIENT LOG] Received non-audio message:', msg);
+        await playAudio(base64ToBytes(msg.data as string));
       }
     } catch (e) {
-      console.error('[CLIENT LOG] Error parsing message or playing audio', e);
+      console.error('Error processing message', e);
     }
   };
 
   socket.onclose = (event) => {
-    console.log(`===== CHKPT 8: WebSocket onclose event FIRED. Code: ${event.code}, Reason: "${event.reason}", Was clean: ${event.wasClean} =====`);
     if (callEndedIntentionallyRef.current) {
-        console.log("[CLIENT LOG] WebSocket was closed intentionally by user.");
+        console.log("WebSocket closed intentionally.");
         return;
     }
 
-    console.log(`[CLIENT LOG] WebSocket closed unexpectedly.`);
     stopRecording();
     if (retryCountRef.current < MAX_RETRIES) {
       retryCountRef.current++;
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCountRef.current - 1);
-      console.log(`[CLIENT LOG] Connection lost. Reconnecting in ${delay}ms... (Attempt ${retryCountRef.current})`);
+      console.log(`Connection lost. Reconnecting in ${delay}ms...`);
       setConnectionStatus('reconnecting');
       retryTimeoutRef.current = setTimeout(() => connectToWebSocket(sessionId, persona), delay);
     } else {
-      console.error("[CLIENT LOG] Could not reconnect after multiple attempts. Ending call.");
-      endCall(pathname !== '/chat');
+      console.error("Could not reconnect after multiple attempts. Marking as disconnected.");
+      setConnectionStatus('disconnected');
     }
   };
 
   socket.onerror = (error) => {
-    console.error("===== CHKPT 9: WebSocket onerror event FIRED. Error:", error, "=====");
+    console.error("WebSocket error:", error);
   };
 }, [user, startRecording, stopRecording, playAudio, endCall, pathname]);
 
 const startCall = useCallback(async (sessionId: string, persona: string) => {
-    console.log("===== CHKPT 4: startCall function EXECUTED =====");
-  
     if (activeCallSessionIdRef.current === sessionId) {
-      console.log('[CLIENT LOG] Call is already active for this session. Navigating to /voice.');
       if (pathname !== '/voice') router.push('/voice');
       return;
     }
   
-    console.log('[CLIENT LOG] Setting up new call state.');
     callEndedIntentionallyRef.current = false;
     callStartTimeRef.current = Date.now();
     setActiveCallSessionId(sessionId);
@@ -294,29 +281,19 @@ const startCall = useCallback(async (sessionId: string, persona: string) => {
     setIsPipViewActive(false);
     setConnectionStatus('connecting');
   
-    // --- IMPORTANT: Fire-and-forget the call log. DO NOT block the WebSocket startup. ---
     try {
-      console.log('[CLIENT LOG] Attempting to call the "startCallLog" cloud function...');
       const result: any = await startCallLog({ sessionId, persona });
-      console.log('[CLIENT LOG] "startCallLog" function succeeded. Result:', result);
-  
       if (result?.data?.callId) {
         activeCallLogIdRef.current = result.data.callId;
-        console.log(`[CLIENT LOG] Stored call log ID: ${result.data.callId}`);
-      } else {
-        console.warn('[CLIENT LOG] "startCallLog" did not return a callId (continuing anyway).');
       }
     } catch (err) {
-      console.warn('[CLIENT LOG] "startCallLog" failed (non-blocking). Continuing to WebSocket.', err);
-      // DO NOT endCall() and DO NOT return here.
+      console.warn('startCallLog failed (non-blocking)', err);
     }
   
-    console.log('[CLIENT LOG] Proceeding to connect WebSocket.');
     setElapsedTime(0);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     timerIntervalRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
   
-    // Always attempt the WebSocket connection
     connectToWebSocket(sessionId, persona);
   
   }, [connectToWebSocket, router, pathname]);

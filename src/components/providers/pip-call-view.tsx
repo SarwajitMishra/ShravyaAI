@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Phone, Mic, MicOff, Volume2, PhoneOff, Loader2 } from 'lucide-react';
@@ -28,6 +27,8 @@ export function PipCallView() {
       endCall();
   };
 
+  // No more manual state management needed here.
+
   const renderStatusIcon = () => {
     switch(connectionStatus) {
         case 'connected':
@@ -42,6 +43,7 @@ export function PipCallView() {
   return (
     <div className="fixed bottom-6 right-6 z-50 bg-background/80 backdrop-blur-sm rounded-full shadow-lg flex items-center gap-2 p-2 border">
       
+      {/* The Link component now simply navigates. The CallProvider handles the state. */}
       <Link href="/voice" className="flex items-center gap-2 text-foreground pr-2">
         {renderStatusIcon()}
         <div className="flex flex-col items-start leading-tight">

@@ -26,47 +26,26 @@ function VoiceCallInitializer() {
         const sessionId = searchParams.get('sessionId');
         const persona = searchParams.get('persona');
 
-        console.log("===== CHKPT 10: VoiceCallInitializer checking URL params. =====");
-
         if (sessionId && persona) {
-            // Only start a new call if we are not already in that specific call.
             if (activeCallSessionId !== sessionId) {
-                console.log(`===== CHKPT 11: Conditions met. Calling startCall(${sessionId}, ${persona}) =====`);
                 startCall(sessionId, persona);
             }
         } else {
-            // If there's no session info in the URL, we can't start a call.
-            console.error("===== CHKPT 13: FATAL - No sessionId or persona found in URL. Redirecting to /chat. =====");
+            console.error("FATAL - No sessionId or persona found in URL. Redirecting to /chat.");
             router.push('/chat');
         }
-        // This effect should only run once when the component mounts and searchParams are ready.
     }, [searchParams, startCall, router, activeCallSessionId]);
 
-    // This component does not render any UI itself.
     return null;
 }
 
 // This component contains the actual UI for the voice page.
 function VoicePageContent() {
-    const { isCallActive, connectionStatus, setIsPipViewActive, activePersona, isMuted, toggleMute, endCall, elapsedTime } = useCall();
+    const { isCallActive, connectionStatus, activePersona, isMuted, toggleMute, endCall, elapsedTime } = useCall();
     const router = useRouter();
 
-    useEffect(() => {
-        // When we are on the main voice page, ensure PiP is not active.
-        if (isCallActive) {
-           setIsPipViewActive(false);
-        }
-
-        // When the component unmounts activate PiP view IF a call is still active.
-        return () => {
-            if (isCallActive) {
-                setIsPipViewActive(true);
-            }
-        };
-    }, [isCallActive, setIsPipViewActive]);
-
+    // Simplified: Just navigate. The CallProvider will handle the PiP state.
     const goBackToChat = () => {
-        setIsPipViewActive(true);
         router.push('/chat');
     };
 
@@ -113,7 +92,6 @@ function VoicePageContent() {
         }
     };
     
-    // Fallback UI for when the call has ended or was never active.
     if (!isCallActive && connectionStatus === 'disconnected') {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
@@ -145,7 +123,7 @@ function VoicePageContent() {
                 <Button variant="secondary" size="lg" className="rounded-full p-4" disabled={!isCallActive}>
                     <Volume2 className="h-6 w-6" />
                 </Button>
-                <Button variant="destructive" size="lg" className="rounded-full" onClick={() => endCall()}>
+                <Button variant="destructive" size="lg" className="rounded-full" onClick={endCall}>
                     <PhoneOff className="mr-2 h-5 w-5" />
                     End Call
                 </Button>
@@ -154,7 +132,6 @@ function VoicePageContent() {
     );
 }
 
-// The default export now correctly uses Suspense to wrap the components.
 export default function VoicePage() {
     return (
         <Suspense fallback={<div className="flex h-screen w-full bg-background items-center justify-center"><Loader2 className="animate-spin h-10 w-10" /></div>}>
