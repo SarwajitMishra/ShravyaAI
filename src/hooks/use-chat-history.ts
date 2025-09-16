@@ -291,6 +291,11 @@ export function useChatHistory() {
     await updateSession({ sessionId, updates: { isArchived } });
   }, [user]);
 
+  const updateSessionType = useCallback(async (sessionId: string, type: 'voice' | 'text') => {
+    if (!user) return;
+    await updateSession({ sessionId, updates: { type } });
+  }, [user]);
+
   const submitMessageFeedback = useCallback(async (sessionId: string, messageId: string, feedback: 'liked' | 'disliked') => {
     if (!user) return;
     try {
@@ -317,5 +322,8 @@ export function useChatHistory() {
     regenerateLastMessage,
     callHistory,
     submitMessageFeedback,
+    updateSessionType,
   };
 }
+
+    

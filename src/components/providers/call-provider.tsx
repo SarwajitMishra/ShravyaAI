@@ -1,3 +1,4 @@
+
 "use client";
 
 console.log('[CLIENT LOG] call-provider.tsx module loaded');
@@ -7,6 +8,7 @@ import { useRouter,usePathname  } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app as firebaseApp } from '@/lib/firebase';
 import { type Persona } from '@/lib/types';
+import { useChatHistory } from '@/hooks/use-chat-history';
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
@@ -51,6 +53,7 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { updateSessionType } = useChatHistory();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -172,6 +175,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     const sessionIdForLog = activeCallSessionIdRef.current;
+    if (sessionIdForLog) {
+      // Reset the session type to 'text'
+      updateSessionType(sessionIdForLog, 'text');
+    }
     if (activeCallLogIdRef.current && sessionIdForLog) {
         const duration = callStartTimeRef.current ? Math.round((Date.now() - callStartTimeRef.current) / 1000) : 0;
         
@@ -199,7 +206,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     activeCallSessionIdRef.current = null;
 
     if (pathname !== '/chat') router.push('/chat');
-}, [stopRecording, router, pathname]);
+}, [stopRecording, router, pathname, updateSessionType]);
 
 
 const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
@@ -258,7 +265,7 @@ const connectToWebSocket = useCallback(async (sessionId: string, persona: string
       retryTimeoutRef.current = setTimeout(() => connectToWebSocket(sessionId, persona), delay);
     } else {
       console.error("Could not reconnect after multiple attempts. Marking as disconnected.");
-      setConnectionStatus('disconnected');
+      endCall();
     }
   };
 
@@ -282,6 +289,8 @@ const startCall = useCallback(async (sessionId: string, persona: string) => {
     setConnectionStatus('connecting');
   
     try {
+      // Mark the session as a 'voice' session
+      await updateSessionType(sessionId, 'voice');
       const result: any = await startCallLog({ sessionId, persona });
       if (result?.data?.callId) {
         activeCallLogIdRef.current = result.data.callId;
@@ -296,7 +305,7 @@ const startCall = useCallback(async (sessionId: string, persona: string) => {
   
     connectToWebSocket(sessionId, persona);
   
-  }, [connectToWebSocket, router, pathname]);
+  }, [connectToWebSocket, router, pathname, updateSessionType]);
 
 
   const toggleMute = useCallback(() => setIsMuted(p => !p), []);
@@ -315,3 +324,5 @@ export function useCall() {
   }
   return context;
 }
+
+    
