@@ -10,8 +10,8 @@ const productionSecurityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
       "style-src 'self' 'unsafe-inline' https:",
       "img-src 'self' data: https:",
-      // This is the production-only connect-src. No localhost.
-      "connect-src 'self' https: ws-proxy-709848175384.us-central1.run.app", 
+      // This is the production-only connect-src. It allows the deployed app to connect to the WebSocket proxy.
+      "connect-src 'self' https: ws-proxy-709848175384.us-central1.run.app",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",
@@ -46,19 +46,40 @@ const nextConfig = {
     ],
   },
   async headers() {
-    // ONLY apply the security headers in the PRODUCTION environment.
+    // Apply different headers based on the environment.
     if (process.env.NODE_ENV === 'production') {
+      // Stricter policy for production
       return [
         {
           source: '/:path*',
           headers: productionSecurityHeaders,
         },
       ];
+    } else {
+      // A more permissive policy for local development to allow local proxy connections.
+      return [
+        {
+          source: '/:path*',
+          headers: [
+            {
+              key: 'Content-Security-Policy',
+              value: [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+                "style-src 'self' 'unsafe-inline' https:",
+                "img-src 'self' data: https:",
+                 // Allow local WebSocket connections for development
+                "connect-src 'self' https: ws://localhost:8080",
+                "frame-ancestors 'self'",
+                "object-src 'none'",
+                "base-uri 'self'",
+              ].join('; ')
+            }
+          ],
+        },
+      ];
     }
-    
-    // For local development, return an empty array, leaving it untouched.
-    return [];
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

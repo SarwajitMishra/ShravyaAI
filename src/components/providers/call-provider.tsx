@@ -206,7 +206,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     activeCallSessionIdRef.current = null;
 
     if (pathname !== '/chat') router.push('/chat');
-}, [stopRecording, router, pathname, updateSessionType]);
+}, [stopRecording, router, updateSessionType]);
 
 
 const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
@@ -272,7 +272,7 @@ const connectToWebSocket = useCallback(async (sessionId: string, persona: string
   socket.onerror = (error) => {
     console.error("WebSocket error:", error);
   };
-}, [user, startRecording, stopRecording, playAudio, endCall, pathname]);
+}, [user, startRecording, stopRecording, playAudio, endCall]);
 
 const startCall = useCallback(async (sessionId: string, persona: string) => {
     if (activeCallSessionIdRef.current === sessionId) {
@@ -324,5 +324,3 @@ export function useCall() {
   }
   return context;
 }
-
-    
