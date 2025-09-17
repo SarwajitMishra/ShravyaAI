@@ -12,6 +12,14 @@ import { URL } from 'url';
 
 import { webSearchTool, _internalPerformWebSearch } from './internal-helpers';
 
+const ALLOWED_ORIGINS = [
+    'https://ai.shravyaworld.org',
+    'https://aishravya.web.app',
+    'https://aishravya.firebaseapp.com',
+    'https://9000-firebase-studio-1755131474336.cluster-nzwlpk54dvagsxetkvxzbvslyi.cloudworkstations.dev/'
+    // It's good practice to also allow your firebase hosting URLs if you use them
+    // e.g., 'https://your-project-id.web.app'
+];
 
 // --- Safe Firebase Initialization ---
 if (getApps().length === 0) {
@@ -92,7 +100,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage, uid: string) => {
             logger.warn("[VPL] Proactive message skipped: WebSocket is not open.");
             return;
         }
-        logger.info(`[VPL] Sending proactive message: "${message}"`);
+        logger.info(`[VPL] Sending proactive message: \"${message}\"`);
         try {
             const textToSpeechClient = new TextToSpeechClient();
             const selectedVoice = personaVoices[persona];
@@ -170,7 +178,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage, uid: string) => {
             logger.info("[VPL] Received empty transcription.");
             return;
         }
-        logger.info(`[VPL] Transcription received: "${transcription}"`);
+        logger.info(`[VPL] Transcription received: \"${transcription}\"`);
 
         if (sessionRef && chat) {
             try {
@@ -195,7 +203,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage, uid: string) => {
                 }
                 
                 const aiResponseText = finalResponse.text();
-                logger.info(`[VPL] AI Response: "${aiResponseText}"`);
+                logger.info(`[VPL] AI Response: \"${aiResponseText}\"`);
 
                 await db.collection(sessionRef.path + '/messages').add({
                     role: 'assistant', content: aiResponseText, createdAt: FieldValue.serverTimestamp()
@@ -298,8 +306,14 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage, uid: string) => {
 
 // --- THE NEW, EXPORTABLE CLOUD FUNCTION (Finally Correct) ---
 export const liveVoicePipeline = onRequest({ cors: true }, (req, res) => {
-    // This function is the new entry point. Firebase runs this code when a request hits the function's URL.
-
+    // **Origin Check for WebSocket Security**
+    const origin = req.headers.origin as string;
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+        logger.error(`[VPL] Connection from origin ${origin} rejected.`);
+        res.status(403).send('Connection from this origin is not allowed.');
+        return;
+    }
+    
     // First, check if this is a WebSocket upgrade request. If not, it's a regular HTTP request we can ignore.
     if (req.headers.upgrade !== 'websocket') {
         logger.info("Received a non-WebSocket request, ignoring.");
@@ -320,7 +334,7 @@ export const liveVoicePipeline = onRequest({ cors: true }, (req, res) => {
 
     if (!token) {
         logger.error("[VPL] Authentication failed: No token provided in upgrade request.");
-        res.socket.write('HTTP/1.1 401 Unauthorized\\r\\n\\r\\n');
+        res.socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         res.socket.destroy();
         return;
     }
@@ -341,7 +355,7 @@ export const liveVoicePipeline = onRequest({ cors: true }, (req, res) => {
             logger.error("[VPL] WebSocket Authentication Error:", error);
             // FINAL FIX: Check for the socket *again* inside the async catch block.
             if (res.socket) {
-                res.socket.write('HTTP/1.1 403 Forbidden\\r\\n\\r\\n');
+                res.socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
                 res.socket.destroy();
             }
         });

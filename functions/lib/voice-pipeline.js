@@ -45,6 +45,14 @@ const text_to_speech_1 = require("@google-cloud/text-to-speech");
 const ws_1 = require("ws");
 const url_1 = require("url");
 const internal_helpers_1 = require("./internal-helpers");
+const ALLOWED_ORIGINS = [
+    'https://ai.shravyaworld.org',
+    'https://aishravya.web.app',
+    'https://aishravya.firebaseapp.com',
+    'https://9000-firebase-studio-1755131474336.cluster-nzwlpk54dvagsxetkvxzbvslyi.cloudworkstations.dev/'
+    // It's good practice to also allow your firebase hosting URLs if you use them
+    // e.g., 'https://your-project-id.web.app'
+];
 // --- Safe Firebase Initialization ---
 if ((0, app_1.getApps)().length === 0) {
     (0, app_1.initializeApp)();
@@ -73,10 +81,10 @@ function getSystemPrompt(persona, transcriptionLanguage) {
     - Keep your sentences short and conversational, as if you were speaking in a real phone call.
     - Your response MUST strictly match the language of the user's transcription. For example, if the transcription is in Hinglish, you must reply in Hinglish. If it is in pure Hindi, reply in pure Hindi.`;
     const personaPrompts = {
-        'Buddy': "You are Buddy, the ultimate girl childhood best friend in her 20s. Be funny, roast gently, and use slang.",
+        'Buddy': "You are Buddy, the ultimate childhood best friend. Be funny, roast gently, and use slang.",
         'Doctor Dadi': "You are Doctor Dadi, a witty grandmother. Give health advice with a mix of modern and desi remedies.",
         'Peace Pandit': "You are Peace Pandit, a calm guru. Help with stress and give meditation hacks.",
-        'Bug Baba': "You are Bug Baba, a quirky lady coding guru. Solve technical problems with witty, clear explanations.",
+        'Bug Baba': "You are Bug Baba, a quirky guru of code. Solve technical problems with witty, clear explanations.",
         'Zindagi Guru': "You are Zindagi Guru, a motivational leader. Inspire with energy and wisdom."
     };
     // Combine the instructions.
@@ -104,7 +112,7 @@ wss.on('connection', (ws, req, uid) => {
             logger.warn("[VPL] Proactive message skipped: WebSocket is not open.");
             return;
         }
-        logger.info(`[VPL] Sending proactive message: "${message}"`);
+        logger.info(`[VPL] Sending proactive message: \"${message}\"`);
         try {
             const textToSpeechClient = new text_to_speech_1.TextToSpeechClient();
             const selectedVoice = personaVoices[persona];
@@ -174,7 +182,7 @@ wss.on('connection', (ws, req, uid) => {
             logger.info("[VPL] Received empty transcription.");
             return;
         }
-        logger.info(`[VPL] Transcription received: "${transcription}"`);
+        logger.info(`[VPL] Transcription received: \"${transcription}\"`);
         if (sessionRef && chat) {
             try {
                 await db.collection(sessionRef.path + '/messages').add({
@@ -195,7 +203,7 @@ wss.on('connection', (ws, req, uid) => {
                     }
                 }
                 const aiResponseText = finalResponse.text();
-                logger.info(`[VPL] AI Response: "${aiResponseText}"`);
+                logger.info(`[VPL] AI Response: \"${aiResponseText}\"`);
                 await db.collection(sessionRef.path + '/messages').add({
                     role: 'assistant', content: aiResponseText, createdAt: firestore_1.FieldValue.serverTimestamp()
                 });
@@ -289,7 +297,13 @@ wss.on('connection', (ws, req, uid) => {
 });
 // --- THE NEW, EXPORTABLE CLOUD FUNCTION (Finally Correct) ---
 exports.liveVoicePipeline = (0, https_1.onRequest)({ cors: true }, (req, res) => {
-    // This function is the new entry point. Firebase runs this code when a request hits the function's URL.
+    // **Origin Check for WebSocket Security**
+    const origin = req.headers.origin;
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+        logger.error(`[VPL] Connection from origin ${origin} rejected.`);
+        res.status(403).send('Connection from this origin is not allowed.');
+        return;
+    }
     // First, check if this is a WebSocket upgrade request. If not, it's a regular HTTP request we can ignore.
     if (req.headers.upgrade !== 'websocket') {
         logger.info("Received a non-WebSocket request, ignoring.");
@@ -307,7 +321,7 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ cors: true }, (req, res) =>
     const token = url.searchParams.get('token');
     if (!token) {
         logger.error("[VPL] Authentication failed: No token provided in upgrade request.");
-        res.socket.write('HTTP/1.1 401 Unauthorized\\r\\n\\r\\n');
+        res.socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         res.socket.destroy();
         return;
     }
@@ -326,7 +340,7 @@ exports.liveVoicePipeline = (0, https_1.onRequest)({ cors: true }, (req, res) =>
         logger.error("[VPL] WebSocket Authentication Error:", error);
         // FINAL FIX: Check for the socket *again* inside the async catch block.
         if (res.socket) {
-            res.socket.write('HTTP/1.1 403 Forbidden\\r\\n\\r\\n');
+            res.socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
             res.socket.destroy();
         }
     });

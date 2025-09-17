@@ -17,7 +17,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useChatHistory } from "@/hooks/use-chat-history";
+import { useChatHistoryState, useChatHistoryActions } from "@/hooks/use-chat-history";
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app as firebaseApp } from '@/lib/firebase';
 
@@ -63,7 +63,8 @@ const CodeBlock = ({ className, children }: { className?: string; children: Reac
 
 export function ChatMessage({ message, onRegenerate, isVoiceSession }: ChatMessageProps) {
   const { toast } = useToast();
-  const { activeConversation, submitMessageFeedback } = useChatHistory();
+  const { activeConversation } = useChatHistoryState();
+  const { submitMessageFeedback } = useChatHistoryActions();
   const [isReadingAloud, setIsReadingAloud] = useState(false);
 
   const handleCopy = () => {

@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
 import { useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
-import { Mic, PhoneOff, ArrowLeft, MicOff, Volume2, Loader2, WifiOff } from 'lucide-react';
+import { Mic, PhoneOff, MicOff, Volume2, Loader2, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCall } from '@/components/providers/call-provider';
@@ -23,12 +23,12 @@ function VoiceCallInitializer() {
     const searchParams = useSearchParams();
 
     useEffect(() => {
-        const sessionId = searchParams.get('sessionId');
-        const persona = searchParams.get('persona');
+        const sessionId = searchParams?.get('sessionId');
+        const persona = searchParams?.get('persona');
 
         if (sessionId && persona) {
             if (activeCallSessionId !== sessionId) {
-                startCall(sessionId, persona);
+                startCall(sessionId, persona, { navigate: false }); // Voice page handles its own existence.
             }
         } else {
             console.error("FATAL - No sessionId or persona found in URL. Redirecting to /chat.");
@@ -42,13 +42,7 @@ function VoiceCallInitializer() {
 // This component contains the actual UI for the voice page.
 function VoicePageContent() {
     const { isCallActive, connectionStatus, activePersona, isMuted, toggleMute, endCall, elapsedTime } = useCall();
-    const router = useRouter();
-
-    // Simplified: Just navigate. The CallProvider will handle the PiP state.
-    const goBackToChat = () => {
-        router.push('/chat');
-    };
-
+    
     const renderCallStatus = () => {
         switch (connectionStatus) {
             case 'connected':
@@ -99,33 +93,27 @@ function VoicePageContent() {
                     <WifiOff className={cn("h-20 w-20 transition-all duration-300 text-destructive/80")} />
                 </div>
                 <p className="text-destructive mt-8">Call has ended.</p>
-                <Button variant="secondary" className="mt-8" onClick={() => router.push('/chat')}>
-                    Back to Chat
-                </Button>
+                <p className="text-sm text-muted-foreground mt-4">You may now close this browser tab.</p>
             </div>
         )
     }
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
-            <Button variant="ghost" size="icon" className="absolute top-4 left-4" onClick={goBackToChat}>
-                <ArrowLeft className="h-6 w-6" />
-            </Button>
             <p className="text-lg text-muted-foreground mb-4">You are speaking with</p>
             <h1 className="text-4xl font-bold mb-8">{activePersona || '...'}</h1>
             
             {renderCallStatus()}
 
-            <div className="absolute bottom-16 flex items-center gap-4">
-                <Button variant={isMuted ? "destructive" : "secondary"} size="lg" className="rounded-full p-4" onClick={toggleMute} disabled={!isCallActive}>
-                    {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-                </Button>
+            <div className="absolute bottom-16 flex items-center gap-8">
                 <Button variant="secondary" size="lg" className="rounded-full p-4" disabled={!isCallActive}>
                     <Volume2 className="h-6 w-6" />
                 </Button>
-                <Button variant="destructive" size="lg" className="rounded-full" onClick={endCall}>
-                    <PhoneOff className="mr-2 h-5 w-5" />
-                    End Call
+                <Button onClick={() => endCall({ navigateToChat: false })} variant="destructive" size="lg" className="rounded-full p-6 scale-110">
+                    <PhoneOff className="h-8 w-8" />
+                </Button>
+                <Button variant={isMuted ? "outline" : "secondary"} size="lg" className="rounded-full p-4" onClick={toggleMute} disabled={!isCallActive}>
+                    {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
                 </Button>
             </div>
         </div>

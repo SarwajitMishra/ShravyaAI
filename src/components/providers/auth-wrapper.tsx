@@ -16,6 +16,11 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (loading) return;
 
+    if (pathname === null) {
+      // Handle the case where pathname is null, maybe return or redirect
+      return;
+    }
+
     const isPublicRoute = publicRoutes.includes(pathname);
     const isRegisteredUser = user && !user.isAnonymous;
 
@@ -43,7 +48,7 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
 
   // To prevent flicker, show a loading bubble while auth state resolves,
   // or if a non-user is trying to access a protected page before redirect.
-  if (loading || (!user && !publicRoutes.includes(pathname))) {
+  if (loading && !user) {
     return (
       <div className="flex h-screen w-full bg-background items-center justify-center">
         <ThinkingBubble />

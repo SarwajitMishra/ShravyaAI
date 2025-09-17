@@ -20,8 +20,8 @@ export function VoiceCallInitializer() {
       return;
     }
 
-    const sessionId = searchParams.get('sessionId');
-    const persona = searchParams.get('persona');
+    const sessionId = searchParams?.get('sessionId');
+    const persona = searchParams?.get('persona');
 
     // If both parameters exist in the URL, it's a valid call request.
     if (sessionId && persona) {

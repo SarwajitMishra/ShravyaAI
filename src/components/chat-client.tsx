@@ -1,6 +1,5 @@
 "use client";
 
-import { PipCallView } from '@/components/providers/pip-call-view';
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -35,11 +34,10 @@ import { Send, ChevronDown, Trash2, Pencil, Paperclip, Mic, MoreHorizontal, Arch
 import { BrandIcon } from "@/components/brand-icon";
 import { ChatMessage } from "@/components/chat-message";
 import { ThinkingBubble } from "@/components/thinking-bubble";
-import { useChatHistory } from "@/hooks/use-chat-history";
 import { cn } from "@/lib/utils";
+import { useChatHistoryState, useChatHistoryActions } from "@/hooks/use-chat-history";
 import type { AiMessage, AiSession, CallLog, LangIntent } from "@/lib/types";
 import { type Persona } from "@/lib/types";
-
 import { SidebarProvider, Sidebar, SidebarTrigger, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction, SidebarGroup, SidebarGroupLabel, SidebarGroupContent } from "@/components/ui/sidebar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -157,24 +155,25 @@ export function ChatClient() {
   // Add this line below the uploadImage function definition
   const uploadFile = httpsCallable(functions, 'uploadFile');
 
-
-
-
   const {
     conversations,
     activeConversation,
     isPending,
+    activePersona,
+    callHistory,
+  } = useChatHistoryState();
+  
+  const {
     startNewConversation,
     sendMessage,
     setActiveConversationId,
     deleteConversation,
     renameConversation,
     archiveConversation,
-    activePersona,
     handlePersonaChange,
     regenerateLastMessage,
-    callHistory,
-  } = useChatHistory();
+  } = useChatHistoryActions();
+  
 
   const [input, setInput] = useState("");
   const [stagedImageUrls, setStagedImageUrls] = useState<string[]>([]);
@@ -223,7 +222,7 @@ export function ChatClient() {
   // Effect to check for guest user message limit
   useEffect(() => {
     if (isGuest && activeConversation?.messages) {
-      const userMessages = activeConversation.messages.filter(m => m.role === 'user').length;
+      const userMessages = activeConversation.messages.filter((m: AiMessage) => m.role === 'user').length;
       const dismissals = parseInt(localStorage.getItem('guestPromptDismissals') || '0', 10);
 
       if (dismissals < guestMessageThresholds.length) {
@@ -291,14 +290,27 @@ const handleFileUpload = async (files: File[]) => {
 
   const handleStartCall = () => {
     if (activeConversation) {
-      // Navigate to the voice page with session info in the URL
-      router.push(`/voice?sessionId=${activeConversation.id}&persona=${activeConversation.mode}`);
+      // Open the voice page in a new, dedicated tab
+      const voiceUrl = `/voice?sessionId=${activeConversation.id}&persona=${activeConversation.mode}`;
+      window.open(voiceUrl, '_blank');
     } else {
       toast({
         variant: "destructive",
         title: "No Active Chat",
         description: "Please send at least one message in a chat before starting a call.",
       });
+    }
+  };  
+
+  // Non-destructive wrapper that logs errors and captures async/sync failures from handleStartCall
+  const phoneClickWrapper = async () => {
+    console.log('[UI] phoneClickWrapper fired (before handleStartCall)');
+    try {
+      console.log('[UI] activeConversation at click:', activeConversation?.id);
+      await Promise.resolve(handleStartCall());
+      console.log('[UI] handleStartCall completed');
+    } catch (err) {
+      console.error('[UI] handleStartCall threw:', err);
     }
   };
 
@@ -473,7 +485,7 @@ const handleCapture = async (dataUrl: string, type: 'photo' | 'screenshot') => {
 
   const chatHistory = conversations?.filter(c => !c.isArchived);
 
-const groupedChats = chatHistory?.reduce((acc, convo) => {
+  const groupedChats = chatHistory?.reduce((acc: Record<Persona, (Omit<AiSession, 'messages'>)[]>, convo: Omit<AiSession, 'messages'>) => {
     const persona = convo.mode || 'Buddy';
     if (!acc[persona]) {
       acc[persona] = [];
@@ -488,7 +500,7 @@ const renderMessagesWithDateSeparators = () => {
   const messageElements: React.ReactNode[] = [];
   let lastDate: string | null = null;
 
-  activeConversation.messages.forEach((message) => {
+  activeConversation.messages.forEach((message: AiMessage) => {
     const messageDate = new Date(message.createdAt);
     let dateString: string;
 
@@ -691,7 +703,7 @@ const renderMessagesWithDateSeparators = () => {
                                     <SidebarGroupLabel>{persona}</SidebarGroupLabel>
                                     <SidebarGroupContent>
                                         <SidebarMenu>
-                                        {convos.map((convo) => (
+                                        {(convos as Omit<AiSession, 'messages'>[]).map((convo) => (
                                             <SidebarMenuItem key={convo.id}>
                                                 <SidebarMenuButton 
                                                     onClick={() => setActiveConversationId(convo.id)}
@@ -751,7 +763,7 @@ const renderMessagesWithDateSeparators = () => {
                                                     </Link>
                                                 </SidebarMenuItem>
                                             )}
-                                            {callHistory.map((call) => (
+                                            {callHistory.map((call: CallLog) => (
                                                 <SidebarMenuItem key={call.id}>
                                                     <div className="flex flex-col w-full p-2 rounded-md hover:bg-accent/50">
                                                         <div className="flex justify-between items-center">
@@ -1010,11 +1022,11 @@ const renderMessagesWithDateSeparators = () => {
                     </div>
                     <div className="absolute top-1/2 -translate-y-1/2 right-3 flex items-center gap-2">
                         {ENABLE_VOICE_MODE && (
-                           <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={handleStartCall}>
+                           <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={phoneClickWrapper} disabled={isCallActive}>
                                 <Phone className="h-5 w-5" />
                             </Button>
                         )}
-                        <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive animate-pulse")} onClick={handleMicClick}>
+                        <Button type="button" variant="ghost" size="icon" className={cn("rounded-full", isRecording && "bg-destructive/20 text-destructive animate-pulse")} onClick={handleMicClick} disabled={isCallActive}>
                             {isRecording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                         </Button>
                         <Button
@@ -1033,7 +1045,6 @@ const renderMessagesWithDateSeparators = () => {
             </div>
         </footer>
       </div>
-    <PipCallView />
     </div>
   );
 }

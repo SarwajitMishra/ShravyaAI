@@ -1,6 +1,9 @@
 
 // @ts-check
 
+const wsProxyUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/websocket';
+const wsProxyHost = new URL(wsProxyUrl).host;
+
 // Define a separate, strict policy for PRODUCTION.
 const productionSecurityHeaders = [
   {
@@ -10,8 +13,8 @@ const productionSecurityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
       "style-src 'self' 'unsafe-inline' https:",
       "img-src 'self' data: https:",
-      // This is the production-only connect-src. It allows the deployed app to connect to the WebSocket proxy.
-      "connect-src 'self' https: ws-proxy-709848175384.us-central1.run.app",
+      // This is the production-only connect-src. It allows the deployed app to connect DIRECTLY to the voice pipeline on Cloud Run.
+      `connect-src 'self' https: ${wsProxyUrl.replace('ws','wss')}`,
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",
@@ -56,7 +59,7 @@ const nextConfig = {
         },
       ];
     } else {
-      // A more permissive policy for local development to allow local proxy connections.
+      // A more permissive policy for local development to allow direct connections.
       return [
         {
           source: '/:path*',
@@ -68,8 +71,8 @@ const nextConfig = {
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
                 "style-src 'self' 'unsafe-inline' https:",
                 "img-src 'self' data: https:",
-                 // Allow local WebSocket connections for development
-                "connect-src 'self' https: ws://localhost:8080",
+                 // Allow direct WebSocket connections for development
+                `connect-src 'self' https: ${wsProxyUrl}`,
                 "frame-ancestors 'self'",
                 "object-src 'none'",
                 "base-uri 'self'",

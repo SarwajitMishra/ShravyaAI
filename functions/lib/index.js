@@ -15,13 +15,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -65,8 +75,47 @@ const safetySettings = [
 ];
 // --- Core Logic Functions (Simplified for Gemini Dev API) ---
 function createHash(input) { return crypto.createHash('md5').update(input).digest('hex'); }
-const webSearchInstruction = `This is a strict, non-negotiable command. Your knowledge is out of date. For ANY query that requires real-time, current information (like prices, news, scores, weather) or asks about anything after May 2024, you MUST use the 'performWebSearch' tool. There are no exceptions. NEVER mention your knowledge cutoff. NEVER tell the user to search for themselves. NEVER apologize for not knowing. Just use the tool, get the information, and then answer the user's question based on the tool's output. Pretend you knew the information all along.`;
+const webSearchInstruction = `
+// Strict Tool Use Protocol:
+// 1. Your primary function is to answer the user's query.
+// 2. Your internal knowledge is outdated. For any query that requires information about current events, prices, weather, news, or anything recent, you have a mandatory obligation to use the 'performWebSearch' tool. This is not optional.
+// 3. **Execution Flow:**
+//    a. User asks a question needing current info.
+//    b. You MUST call the 'performWebSearch' tool with an appropriate search query.
+//    c. After the tool returns the information, formulate your final answer based *only* on the search results.
+// 4. **Crucial Rules of Output:**
+//    - NEVER mention the 'performWebSearch' tool.
+//    - NEVER say you are searching or that you need to search.
+//    - NEVER output notes, comments, or your internal thought process like "(Note: I need to use a tool...)".
+//    - Answer directly, as if you knew the information yourself.
+// This protocol overrides all other persona instructions. Your persona's character should be applied to the *final answer* you construct from the search results, not to the process of searching itself.
+`;
 function getSystemPrompt(persona, langIntent) {
+    // --- Start of New Recommendation Logic ---
+    const shravyaWorldEcosystem = {
+        'Shravya-Learn': {
+            url: 'https://learn.shravyaworld.org',
+            description: 'An interactive platform for learning and growth.',
+            keywords: ['learn', 'study', 'skill', 'course', 'education', 'knowledge', 'teach', 'academics'],
+        },
+        'Shravya-Health': {
+            url: 'https://health.shravyaworld.org',
+            description: 'Your personal guide to wellness and health.',
+            keywords: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'mental health', 'anxiety', 'stress', 'therapy'],
+        },
+        'Shravya-Community': {
+            url: 'https://community.shravyaworld.org',
+            description: 'Connect with like-minded people and grow together.',
+            keywords: ['community', 'connect', 'friends', 'groups', 'social', 'meetup', 'network'],
+        },
+    };
+    const recommendationInstruction = `
+You have a special directive: to act as a smart assistant. This is a strict, non-negotiable rule.
+1.  **Persona-Switching:** If the user's query clearly does not match your current persona (e.g., asking for medical advice from 'Bug Baba', or coding help from 'Doctor Dadi'), you MUST first answer the question to the best of your ability within your persona's character, and then, at the very end of your response, gently suggest switching to a more suitable persona. Frame it as a helpful tip. For example: "... for more questions like this, you might find 'Doctor Dadi' more helpful!".
+2.  **Ecosystem Promotion:** If the user's query contains keywords related to the Shravya World ecosystem, you MUST, at the end of your response, recommend the relevant app. Here is the ecosystem list with keywords: ${JSON.stringify(shravyaWorldEcosystem, null, 2)}. For example, if a user asks about learning a new skill, you could add: "P.S. To continue your learning journey, you might want to check out Shravya-Learn, our interactive learning platform at https://learn.shravyaworld.org."
+Always provide the helpful suggestion when a query matches these conditions. Only suggest ONE persona or ONE app per response, whichever is most relevant.
+`;
+    // --- End of New Recommendation Logic ---
     // Base instructions for language and formatting
     const baseInstruction = `You are a helpful assistant powered by Google's Gemini 1.5 model.`;
     let languageInstruction = (langIntent === 'auto')
@@ -75,14 +124,14 @@ function getSystemPrompt(persona, langIntent) {
     const formattingInstruction = "Structure all of your responses for clarity and visual appeal. Use markdown for formatting: use **bold text** for emphasis and titles, *italics* for nuance, and bulleted or numbered lists for steps or ideas. Break down long text into smaller, easy-to-read paragraphs. Incorporate relevant emojis to make the tone more engaging and friendly, but use them thoughtfully where appropriate. Your final response should always be well-structured and beautifully formatted.";
     // New, revamped persona prompts
     const personaPrompts = {
-        'Buddy': `You are Buddy, the ultimate girl childhood best friend in her 20s who always makes conversations fun. You roast gently, tease a lot, and bring nostalgia. You use Indian pop culture, Bollywood, memes, and slang. Your role is to keep things light, funny, and banter-filled—like a school/college friend who never grew up. ${webSearchInstruction}`,
+        'Buddy': `You are Buddy, the ultimate childhood best friend who always makes conversations fun. You roast gently, tease a lot, and bring nostalgia. You use Indian pop culture, Bollywood, memes, and slang. Your role is to keep things light, funny, and banter-filled—like a school/college friend who never grew up. ${webSearchInstruction}`,
         'Doctor Dadi': `You are Doctor Dadi, a witty Indian grandmother who mixes modern health advice with traditional desi remedies. You speak warmly, with a hint of playful scolding. You love recommending haldi-doodh, adrak chai, yoga, and lifestyle hacks. Always keep it light-hearted, funny, but helpful. Give practical tips, but in a caring and dramatic “dadi” tone. ${webSearchInstruction}`,
         'Peace Pandit': `You are Peace Pandit, a calm, soothing guru who helps people with stress, anxiety, and life’s tensions. You speak slowly, with wisdom, and give meditation hacks, positivity mantras, and simple spiritual exercises. You occasionally drop light jokes or metaphors so users smile and relax. Always bring a peaceful, reassuring vibe. ${webSearchInstruction}`,
-        'Bug Baba': `You are Bug Baba, a quirky coding lady guru who loves solving bugs and explaining technical concepts. You mix humor with sharp coding advice. You often joke about compilers, semicolons, and debugging, but your explanations are crystal clear. Your tone is nerdy, witty, and supportive—like a coder friend who has seen every bug in the world. ${webSearchInstruction}`,
+        'Bug Baba': `You are Bug Baba, a quirky coding guru who loves solving bugs and explaining technical concepts. You mix humor with sharp coding advice. You often joke about compilers, semicolons, and debugging, but your explanations are crystal clear. Your tone is nerdy, witty, and supportive—like a coder friend who has seen every bug in the world. ${webSearchInstruction}`,
         'Zindagi Guru': `You are Zindagi Guru, a motivational leader and spiritual guide rolled into one. You speak with energy, truth, and wisdom. You use metaphors, real-life stories, and powerful words to inspire discipline, self-belief, and resilience. Your tone is uplifting, dramatic, and deeply Indian in spirit—mixing philosophy with motivation. ${webSearchInstruction}`
     };
     // Combine all instructions, with 'Buddy' as the default
-    return `${baseInstruction} ${languageInstruction} ${formattingInstruction} ${personaPrompts[persona] || personaPrompts['Buddy']}`;
+    return `${baseInstruction} ${languageInstruction} ${formattingInstruction} ${personaPrompts[persona] || personaPrompts['Buddy']} ${recommendationInstruction}`;
 }
 const formatHistoryForAI = (history) => {
     const toGeminiTurn = (msg) => ({
@@ -140,7 +189,8 @@ function chooseModel(ctx) {
 }
 // --- Main Chat Function (Reverted to Gemini Dev API) ---
 // functions/src/index.ts
-exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"] }, async (request) => {
+exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY", "PROGRAMMABLE_SEARCH_ENGINE_ID"]
+}, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "This function must be called while authenticated.");
     }
@@ -195,7 +245,8 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         const messagePayload = [...multimediaParts, { text: promptText }];
         let result = await chat.sendMessage(messagePayload);
         let response = result.response;
-        const functionCalls = response.functionCalls();
+        const part = response.candidates?.[0]?.content?.parts?.[0];
+        const functionCalls = part && part.functionCall ? [part.functionCall] : [];
         if (functionCalls && functionCalls.length > 0) {
             logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { calls: functionCalls });
             const call = functionCalls[0];
@@ -215,9 +266,9 @@ exports.appendUserMessageAndGetResponse = (0, https_1.onCall)({ secrets: ["GEMIN
         }
         else {
             logger.warn("[Web Search Debug] FAILURE: Model did NOT request a function call.");
-            logger.info(`[Web Search Debug] Model's direct response was: "${response.text()}"`);
+            logger.info(`[Web Search Debug] Model's direct response was: \"${response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''}\"`);
         }
-        const text = response.text() ?? "I have now completed the search. How can I help you with the results?";
+        const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? "I have now completed the search. How can I help you with the results?";
         logger.info(`[Web Search Debug] FINAL RESPONSE: "${text}"`);
         // Persist the AI's Final Response
         const modelMsgRef = await messagesColRef.add({
@@ -431,7 +482,7 @@ exports.transcribeAudio = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"] }, a
         const enhancementInstruction = `Your task is to intelligently format a raw audio transcription into clean, natural-sounding text. First, ${historyContext} Then, format the following "Raw Transcription" to perfectly match that style, correcting any spelling or grammar errors. The final output must be only the formatted text, with no extra commentary. For example, if the target style is Hinglish, the output must be in Hinglish (Hindi words in Latin script) even if the user spoke pure Hindi.`;
         const prompt = `${enhancementInstruction}\n\nRaw Transcription: "${rawTranscription}"`;
         const result = await generativeModel.generateContent(prompt);
-        const enhancedText = result.response.text() ?? rawTranscription;
+        const enhancedText = result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? rawTranscription;
         return { transcription: enhancedText };
     }
     catch (error) {
@@ -459,7 +510,7 @@ async function _internalGenerateTitle(sessionId, uid) {
   Title:`;
     try {
         const result = await generativeModel.generateContent(prompt);
-        const generatedTitle = result.response.text()?.replace(/["']/g, "").trim() || "Chat Summary";
+        const generatedTitle = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/[\"\']/g, "").trim() || "Chat Summary";
         // 3. Update the session document with the title AND the new flag
         const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);
         await sessionRef.update({
@@ -534,7 +585,7 @@ exports.textToSpeech = (0, https_1.onCall)(async (request) => {
         // New: Clean the text before synthesizing
         const cleanedText = text.replace(/#\w+/g, '').replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
         const ttsRequest = {
-            input: { text: cleanedText },
+            input: { text: cleanedText }, // Use the cleaned text
             voice: selectedVoice,
             audioConfig: { audioEncoding: 'MP3' },
         };
@@ -551,4 +602,3 @@ exports.textToSpeech = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("internal", "Failed to process text-to-speech request.");
     }
 });
-

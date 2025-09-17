@@ -109,9 +109,54 @@ const safetySettings = [
 // --- Core Logic Functions (Simplified for Gemini Dev API) ---
 function createHash(input: string): string { return crypto.createHash('md5').update(input).digest('hex'); }
 
-const webSearchInstruction = `This is a strict, non-negotiable command. Your knowledge is out of date. For ANY query that requires real-time, current information (like prices, news, scores, weather) or asks about anything after May 2024, you MUST use the 'performWebSearch' tool. There are no exceptions. NEVER mention your knowledge cutoff. NEVER tell the user to search for themselves. NEVER apologize for not knowing. Just use the tool, get the information, and then answer the user's question based on the tool's output. Pretend you knew the information all along.`;
+const webSearchInstruction = `
+// Strict Tool Use Protocol:
+// 1. Your primary function is to answer the user's query.
+// 2. Your internal knowledge is outdated. For any query that requires information about current events, prices, weather, news, or anything recent, you have a mandatory obligation to use the 'performWebSearch' tool. This is not optional.
+// 3. **Execution Flow:**
+//    a. User asks a question needing current info.
+//    b. You MUST call the 'performWebSearch' tool with an appropriate search query.
+//    c. After the tool returns the information, formulate your final answer based *only* on the search results.
+// 4. **Crucial Rules of Output:**
+//    - NEVER mention the 'performWebSearch' tool.
+//    - NEVER say you are searching or that you need to search.
+//    - NEVER output notes, comments, or your internal thought process like "(Note: I need to use a tool...)".
+//    - Answer directly, as if you knew the information yourself.
+// This protocol overrides all other persona instructions. Your persona's character should be applied to the *final answer* you construct from the search results, not to the process of searching itself.
+`;
+
 
 function getSystemPrompt(persona: Persona, langIntent: LangIntent): string {
+
+  // --- Start of New Recommendation Logic ---
+
+const shravyaWorldEcosystem = {
+  'Shravya-Learn': {
+      url: 'https://learn.shravyaworld.org',
+      description: 'An interactive platform for learning and growth.',
+      keywords: ['learn', 'study', 'skill', 'course', 'education', 'knowledge', 'teach', 'academics'],
+  },
+  'Shravya-Health': {
+      url: 'https://health.shravyaworld.org',
+      description: 'Your personal guide to wellness and health.',
+      keywords: ['health', 'medical', 'doctor', 'wellness', 'fitness', 'mental health', 'anxiety', 'stress', 'therapy'],
+  },
+  'Shravya-Community': {
+      url: 'https://community.shravyaworld.org',
+      description: 'Connect with like-minded people and grow together.',
+      keywords: ['community', 'connect', 'friends', 'groups', 'social', 'meetup', 'network'],
+  },
+};
+
+const recommendationInstruction = `
+You have a special directive: to act as a smart assistant. This is a strict, non-negotiable rule.
+1.  **Persona-Switching:** If the user's query clearly does not match your current persona (e.g., asking for medical advice from 'Bug Baba', or coding help from 'Doctor Dadi'), you MUST first answer the question to the best of your ability within your persona's character, and then, at the very end of your response, gently suggest switching to a more suitable persona. Frame it as a helpful tip. For example: "... for more questions like this, you might find 'Doctor Dadi' more helpful!".
+2.  **Ecosystem Promotion:** If the user's query contains keywords related to the Shravya World ecosystem, you MUST, at the end of your response, recommend the relevant app. Here is the ecosystem list with keywords: ${JSON.stringify(shravyaWorldEcosystem, null, 2)}. For example, if a user asks about learning a new skill, you could add: "P.S. To continue your learning journey, you might want to check out Shravya-Learn, our interactive learning platform at https://learn.shravyaworld.org."
+Always provide the helpful suggestion when a query matches these conditions. Only suggest ONE persona or ONE app per response, whichever is most relevant.
+`;
+
+// --- End of New Recommendation Logic ---
+
   // Base instructions for language and formatting
   const baseInstruction = `You are a helpful assistant powered by Google's Gemini 1.5 model.`;
 
@@ -133,7 +178,7 @@ function getSystemPrompt(persona: Persona, langIntent: LangIntent): string {
 
   
   // Combine all instructions, with 'Buddy' as the default
-  return `${baseInstruction} ${languageInstruction} ${formattingInstruction} ${personaPrompts[persona] || personaPrompts['Buddy']}`;
+  return `${baseInstruction} ${languageInstruction} ${formattingInstruction} ${personaPrompts[persona] || personaPrompts['Buddy']} ${recommendationInstruction}`;
 }
 
 const formatHistoryForAI = (history: FirebaseFirestore.QuerySnapshot): any[] => {
@@ -267,13 +312,14 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
           let result = await chat.sendMessage(messagePayload);
           let response: GenerateContentResponse = result.response;
 
-        const functionCalls = response.functionCalls();
+          const part = response.candidates?.[0]?.content?.parts?.[0];
+          const functionCalls = part && part.functionCall ? [part.functionCall] : [];          
         if (functionCalls && functionCalls.length > 0) {
             logger.info("[Web Search Debug] SUCCESS: Model wants to call a function!", { calls: functionCalls });
             
             const call = functionCalls[0];
             if (call.name === "performWebSearch") {
-                const query = call.args?.query ?? "";
+              const query = (call.args as { query?: string })?.query ?? "";
                 const results = await _internalPerformWebSearch(String(query));
 
                 const followUp = await chat.sendMessage([
@@ -288,10 +334,10 @@ export const appendUserMessageAndGetResponse = onCall<AppendUserMessageAndGetRes
             }
         } else {
             logger.warn("[Web Search Debug] FAILURE: Model did NOT request a function call.");
-            logger.info(`[Web Search Debug] Model's direct response was: "${response.text()}"`);
+            logger.info(`[Web Search Debug] Model's direct response was: \"${response.candidates?.[0]?.content?.parts?.[0]?.text ?? ''}\"`);
         }
         
-        const text = response.text() ?? "I have now completed the search. How can I help you with the results?";
+        const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? "I have now completed the search. How can I help you with the results?";
         logger.info(`[Web Search Debug] FINAL RESPONSE: "${text}"`);
           
           // Persist the AI's Final Response
@@ -540,7 +586,7 @@ export const transcribeAudio = onCall<TranscribeAudioReq, Promise<TranscribeAudi
       const prompt = `${enhancementInstruction}\n\nRaw Transcription: "${rawTranscription}"`;
 
       const result = await generativeModel.generateContent(prompt);
-      const enhancedText = result.response.text() ?? rawTranscription;
+      const enhancedText = result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? rawTranscription;
 
       return { transcription: enhancedText };
 
@@ -575,7 +621,7 @@ async function _internalGenerateTitle(sessionId: string, uid: string) {
 
   try {
       const result = await generativeModel.generateContent(prompt);
-      const generatedTitle = result.response.text()?.replace(/["']/g, "").trim() || "Chat Summary";
+      const generatedTitle = result.response.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/[\"\']/g, "").trim() || "Chat Summary";
 
       // 3. Update the session document with the title AND the new flag
       const sessionRef = db.doc(`aiProfiles/${uid}/sessions/${sessionId}`);

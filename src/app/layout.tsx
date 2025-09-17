@@ -5,14 +5,7 @@ import { Poppins } from "next/font/google";
 import { GeistSans } from 'geist/font/sans';
 import { Analytics } from "@vercel/analytics/react"
 import { SpeedInsights } from "@vercel/speed-insights/next"
-import { PipCallView } from '@/components/providers/pip-call-view';
-
-import { Toaster } from "@/components/ui/toaster";
-import { AuthProvider } from "@/components/providers/auth-provider";
-import AuthWrapper from "@/components/providers/auth-wrapper";
-import { ThemeProvider } from "@/components/providers/theme-provider";
-import { CallProvider } from '@/components/providers/call-provider';
-import CallGlobalUIHandler from "@/components/logic/CallGlobalUIHandler";
+import { AppProviders } from "@/components/providers/app-providers";
 
 import "./globals.css";
 
@@ -40,22 +33,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={GeistSans.className} suppressHydrationWarning>
-        <AuthProvider>
-        <CallProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-          >
-            <AuthWrapper>{children}</AuthWrapper>
-            <PipCallView />
-            <Toaster />
-            <Analytics />
-            <SpeedInsights />
-          </ThemeProvider>
-          <CallGlobalUIHandler />
-          </CallProvider>
-        </AuthProvider>
+        <AppProviders>
+          {children}
+        </AppProviders>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
