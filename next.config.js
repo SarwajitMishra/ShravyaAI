@@ -1,27 +1,35 @@
 
 // @ts-check
 
+// The URL for the WebSocket proxy, used for the live voice call feature.
 const wsProxyUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/websocket';
-const wsProxyHost = new URL(wsProxyUrl).host;
 
-// Define a separate, strict policy for PRODUCTION.
-const productionSecurityHeaders = [
+// The hostname is extracted to be used in the Content Security Policy.
+// This allows the client-side code to connect to the WebSocket server.
+const wsProxyHost = new URL(wsProxyUrl).hostname;
+
+
+// Base security headers. These are applied in all environments.
+const securityHeaders = [
   {
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
+      // Allow scripts from self, inline, and eval (for development).
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+      // Allow styles from self and inline.
       "style-src 'self' 'unsafe-inline' https:",
+      // Allow images from self, data URIs, and any HTTPS source.
       "img-src 'self' data: https:",
-      // This is the production-only connect-src. It allows the deployed app to connect DIRECTLY to the voice pipeline on Cloud Run.
-      `connect-src 'self' https: ${wsProxyUrl.replace('ws','wss')}`,
+      // Allow WebSocket and HTTPS connections to self and the designated proxy host.
+      `connect-src 'self' https: ${wsProxyUrl.startsWith('ws://') ? wsProxyUrl : 'wss://' + wsProxyHost}`,
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",
-      "upgrade-insecure-requests"
     ].join('; ')
   }
 ];
+
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -49,39 +57,13 @@ const nextConfig = {
     ],
   },
   async headers() {
-    // Apply different headers based on the environment.
-    if (process.env.NODE_ENV === 'production') {
-      // Stricter policy for production
-      return [
-        {
-          source: '/:path*',
-          headers: productionSecurityHeaders,
-        },
-      ];
-    } else {
-      // A more permissive policy for local development to allow direct connections.
-      return [
-        {
-          source: '/:path*',
-          headers: [
-            {
-              key: 'Content-Security-Policy',
-              value: [
-                "default-src 'self'",
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
-                "style-src 'self' 'unsafe-inline' https:",
-                "img-src 'self' data: https:",
-                 // Allow direct WebSocket connections for development
-                `connect-src 'self' https: ${wsProxyUrl}`,
-                "frame-ancestors 'self'",
-                "object-src 'none'",
-                "base-uri 'self'",
-              ].join('; ')
-            }
-          ],
-        },
-      ];
-    }
+    // Apply the same security headers across all environments.
+    return [
+      {
+        source: '/:path*',
+        headers: securityHeaders,
+      },
+    ];
   },
 };
 
