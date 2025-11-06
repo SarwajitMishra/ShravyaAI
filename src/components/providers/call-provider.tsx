@@ -1,15 +1,14 @@
-
 "use client";
 
-console.log('[CLIENT LOG] call-provider.tsx module loaded');
 import React, { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from './auth-provider';
-import { useRouter,usePathname  } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app as firebaseApp } from '@/lib/firebase';
 import { type Persona } from '@/lib/types';
 import { useChatHistoryActions } from '@/hooks/use-chat-history';
 
+// --- Types ---
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
 type CallContextType = {
@@ -20,44 +19,41 @@ type CallContextType = {
   activeCallSessionId: string | null;
   activePersona: string | null;
   isMuted: boolean;
-  startCall: (sessionId: string, persona: string, options?: { navigate?: boolean }) => void;
-  endCall: (options?: { navigateToChat?: boolean; isPassive?: boolean }) => void;
+  startCall: (sessionId: string, persona: Persona) => void;
+  endCall: () => void;
   toggleMute: () => void;
   elapsedTime: number;
 };
 
+// Interface for the expected data from startCallLog
+interface StartCallLogResult {
+  callId: string;
+}
+
+// --- Firebase Functions ---
 const functions = getFunctions(firebaseApp);
 const startCallLog = httpsCallable(functions, 'startCallLog');
 const endCallLog = httpsCallable(functions, 'endCallLog');
 
-
 const CallContext = createContext<CallContextType | undefined>(undefined);
 
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 1000; // 1 second
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
+// --- Helper Functions ---
 function base64ToBytes(b64: string): Uint8Array {
   const binary = atob(b64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
   return bytes;
 }
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const { updateSessionType } = useChatHistoryActions(); // DECOUPLED
+  const { updateSessionType } = useChatHistoryActions();
   const router = useRouter();
   const pathname = usePathname();
 
-  const providerId = useMemo(() => Math.random().toString(36).substring(2, 9), []);
-
+  // --- State ---
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [isPipViewActive, setIsPipViewActive] = useState(false);
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
@@ -65,72 +61,235 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [isMuted, setIsMuted] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
 
+  // --- Refs for non-stateful data ---
   const socketRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const retryCountRef = useRef(0);
-  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMutedRef = useRef(isMuted);
   const callStartTimeRef = useRef<number | null>(null);
-  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeCallLogIdRef = useRef<string | null>(null);
-  const activeCallSessionIdRef = useRef<string | null>(null);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const callLogIdRef = useRef<string | null>(null);
   const callEndedIntentionallyRef = useRef(false);
-  const endCallRef = useRef<((options?: { navigateToChat?: boolean; isPassive?: boolean }) => Promise<void>) | null>(null);
 
-  const isCallActive = connectionStatus === 'connected' || connectionStatus === 'reconnecting' || connectionStatus === 'connecting';
-
-  const isCallActiveRef = useRef(isCallActive);
-  useEffect(() => {
-      isCallActiveRef.current = isCallActive;
-  }, [isCallActive]);
-
-  const stateRef = useRef({ router, pathname, user });
-  useEffect(() => { stateRef.current = { router, pathname, user }; });
-
+  const isCallActive = useMemo(() => connectionStatus === 'connected' || connectionStatus === 'connecting' || connectionStatus === 'reconnecting', [connectionStatus]);
+  const isMutedRef = useRef(isMuted);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
-  useEffect(() => {
-    const channel = new BroadcastChannel('call_status_channel');
 
-    const handleMessage = (event: MessageEvent) => {
-      const { type, payload, senderId } = event.data;
-      if (senderId === providerId) return; // Ignore messages from self
+  // --- Core Audio & Media Functions ---
 
-      switch (type) {
+  const playAudio = useCallback(async (audioBytes: Uint8Array) => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    try {
+      const buffer = await audioContextRef.current.decodeAudioData(audioBytes.slice().buffer);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContextRef.current.destination);
+      source.start(0);
+    } catch (error) {
+      console.error("Error playing audio:", error);
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      if (mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
+    }
+  }, []);
+  
+  const startRecording = useCallback(async (socket: WebSocket) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true } });
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm; codecs=opus' });
+      
+      mediaRecorderRef.current.ondataavailable = async (event) => {
+        if (event.data.size > 0 && socket.readyState === WebSocket.OPEN && !isMutedRef.current) {
+          const arrayBuffer = await event.data.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          let binaryString = "";
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binaryString += String.fromCharCode(bytes[i]);
+          }
+          const base64 = btoa(binaryString);
+          socket.send(JSON.stringify({ event: 'audio', data: base64 }));
+        }
+      };
+      
+      mediaRecorderRef.current.start(500);
+    } catch (error) {
+      console.error("Error accessing microphone:", error);
+      endCall();
+    }
+  }, [stopRecording]);
+
+
+  // --- Central Cleanup Function ---
+
+  const cleanupCall = useCallback(() => {
+    console.log("[CallProvider] Cleaning up call resources.");
+    
+    stopRecording();
+    
+    if (socketRef.current) {
+      socketRef.current.onclose = null; 
+      socketRef.current.close(1000, "Cleanup initiated");
+      socketRef.current = null;
+    }
+
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    if (activeCallSessionId && callLogIdRef.current) {
+      const duration = callStartTimeRef.current ? Math.round((Date.now() - callStartTimeRef.current) / 1000) : 0;
+      endCallLog({ sessionId: activeCallSessionId, callId: callLogIdRef.current, duration })
+        .catch(err => console.error("endCallLog failed:", err));
+      updateSessionType(activeCallSessionId, 'text');
+    }
+    
+    setConnectionStatus('disconnected');
+    setIsPipViewActive(false);
+    setActiveCallSessionId(null);
+    setActivePersona(null);
+    setElapsedTime(0);
+    callStartTimeRef.current = null;
+    callLogIdRef.current = null;
+
+  }, [stopRecording, updateSessionType, activeCallSessionId]);
+
+
+  // --- WebSocket Connection Management ---
+  
+  const connectToWebSocket = useCallback(async (sessionId: string, persona: Persona) => {
+    if (!user) return cleanupCall();
+
+    console.log(`[CallProvider] Connecting to WebSocket for session: ${sessionId}`);
+    setConnectionStatus('connecting');
+    const token = await user.getIdToken();
+    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL}?token=${token}`;
+    
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      console.log("[CallProvider] WebSocket Connected.");
+      socket.send(JSON.stringify({ event: 'start', sessionId, persona }));
+      startRecording(socket);
+    };
+
+    socket.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+
+      switch (msg.event) {
         case 'call_started':
-          if (!isCallActiveRef.current) {
-            callEndedIntentionallyRef.current = false;
-            setConnectionStatus('connected');
-            setActiveCallSessionId(payload.sessionId);
-            activeCallSessionIdRef.current = payload.sessionId;
-            setActivePersona(payload.persona);
+          console.log("[CallProvider] Received call_started from server.");
+          callEndedIntentionallyRef.current = false;
+          setConnectionStatus('connected');
+          setActiveCallSessionId(msg.sessionId);
+          setActivePersona(msg.persona);
+          
+          if (!callStartTimeRef.current) {
             callStartTimeRef.current = Date.now();
             setElapsedTime(0);
             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
+            timerIntervalRef.current = setInterval(() => {
+              setElapsedTime(prev => prev + 1);
+            }, 1000);
           }
           break;
-
+        
         case 'call_ended':
-          if (isCallActiveRef.current) {
-              if (endCallRef.current) {
-                  endCallRef.current({ isPassive: true });
-              }
+          console.log("[CallProvider] Received call_ended from server.");
+          cleanupCall();
+          break;
+
+        case 'audio':
+          if (msg.data) {
+            playAudio(base64ToBytes(msg.data));
           }
+          break;
+        
+        case 'error':
+          console.error("[CallProvider] Received error from server:", msg.message);
           break;
       }
     };
-    
-    channel.addEventListener('message', handleMessage);
 
-    return () => {
-      channel.removeEventListener('message', handleMessage);
-      channel.close();
+    socket.onerror = (error) => {
+      console.error("[CallProvider] WebSocket Error:", error);
     };
-  }, [providerId]);
 
+    socket.onclose = (event) => {
+      console.log(`[CallProvider] WebSocket closed. Code: ${event.code}`);
+      if (!callEndedIntentionallyRef.current) {
+        console.log("[CallProvider] Unexpected closure. Cleaning up UI.");
+        cleanupCall();
+      }
+    };
+
+  }, [user, cleanupCall, playAudio, startRecording]);
+
+  
+  // --- Public Context Functions ---
+
+  const startCall = useCallback(async (sessionId: string, persona: Persona) => {
+    if (isCallActive && activeCallSessionId === sessionId) {
+      if (pathname !== '/voice') {
+        router.push(`/voice?sessionId=${sessionId}&persona=${persona}`);
+      }
+      return;
+    }
+    
+    if (isCallActive) {
+      endCall();
+    }
+    
+    console.log(`[CallProvider] Starting call for session: ${sessionId}`);
+    callEndedIntentionallyRef.current = false;
+    
+    try {
+      await updateSessionType(sessionId, 'voice');
+      const result = await startCallLog({ sessionId, persona });
+      // --- FINAL FIX for 'unknown' type ERROR ---
+      // Safely cast the 'data' property after receiving it.
+      const data = result.data as StartCallLogResult;
+      if (data && data.callId) {
+        callLogIdRef.current = data.callId;
+      }
+    } catch (err) {
+      console.warn('startCallLog failed (non-blocking)', err);
+    }
+    
+    connectToWebSocket(sessionId, persona);
+
+    if (pathname !== `/voice`) {
+      router.push(`/voice?sessionId=${sessionId}&persona=${persona}`);
+    }
+  }, [isCallActive, activeCallSessionId, pathname, router, updateSessionType, connectToWebSocket]);
+
+  const endCall = useCallback(() => {
+    console.log("[CallProvider] User initiated endCall.");
+    callEndedIntentionallyRef.current = true;
+    
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ event: 'stop_call' }));
+    }
+    
+    cleanupCall();
+
+  }, [cleanupCall]);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted(prevMuted => !prevMuted);
+  }, []);
+
+  // --- PiP View Logic ---
   useEffect(() => {
     if (isCallActive && pathname !== '/voice') {
       setIsPipViewActive(true);
@@ -139,138 +298,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [isCallActive, pathname]);
 
-  const playAudio = useCallback(async (audioBytes: Uint8Array) => {
-    // ... (implementation remains the same)
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    // ... (implementation remains the same)
-  }, []);
-  
-  const startRecording = useCallback(() => {
-    // ... (implementation remains the same)
-  }, []);
-
-  const connectToWebSocket = useCallback(async (sessionId: string, persona: string) => {
-    // ... (implementation remains the same)
-  }, [user, startRecording, stopRecording, playAudio]);
-
-  const endCall = useCallback(async (options: { navigateToChat?: boolean; isPassive?: boolean } = {}) => {
-    const { navigateToChat = false, isPassive = false } = options;
-
-    if (!isPassive) {
-        const channel = new BroadcastChannel('call_status_channel');
-        channel.postMessage({ type: 'call_ended', senderId: providerId });
-        channel.close();
-    }
-
-    const { router, pathname } = stateRef.current;
-    callEndedIntentionallyRef.current = true;
-    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-    retryCountRef.current = 0;
-
-    if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
-    }
-    
-    if (!isPassive) {
-      stopRecording();
-      if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => track.stop());
-          mediaStreamRef.current = null;
-      }
-      if (socketRef.current) {
-          if (socketRef.current.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ event: 'stop' }));
-          socketRef.current.onclose = null; 
-          socketRef.current.close(1000, "Call ended by user");
-          socketRef.current = null;
-      }
-    }
-
-    const sessionIdForLog = activeCallSessionIdRef.current;
-    if (sessionIdForLog) updateSessionType(sessionIdForLog, 'text');
-    
-    if (activeCallLogIdRef.current && sessionIdForLog) {
-        const duration = callStartTimeRef.current ? Math.round((Date.now() - callStartTimeRef.current) / 1000) : 0;
-        if (!isNaN(duration) && duration >= 0) {
-            try { await endCallLog({ sessionId: sessionIdForLog, callId: activeCallLogIdRef.current, duration }); }
-            catch(err) { console.error("[CallProvider] endCallLog function failed:", err); }
-        }
-    }
-
-    setConnectionStatus('disconnected');
-    setIsPipViewActive(false);
-    setActiveCallSessionId(null);
-    setActivePersona(null);
-    callStartTimeRef.current = null;
-    activeCallLogIdRef.current = null;
-    setElapsedTime(0);
-    activeCallSessionIdRef.current = null;
-
-    if (navigateToChat && pathname !== '/chat') router.push('/chat');
-  }, [providerId, stopRecording, updateSessionType]);
-
-  useEffect(() => { endCallRef.current = endCall; }, [endCall]);
-
-  const startCall = useCallback(async (sessionId: string, persona: string, options?: { navigate?: boolean }) => {
-    const { router, pathname } = stateRef.current;
-
-    if (isCallActive) {
-        if (activeCallSessionIdRef.current === sessionId) {
-            if (pathname !== '/voice') router.push('/voice');
-            return;
-        } else {
-          await endCall({ navigateToChat: false });
-        }
-    }
-    
-    const channel = new BroadcastChannel('call_status_channel');
-    channel.postMessage({
-        type: 'call_started',
-        payload: { sessionId, persona },
-        senderId: providerId
-    });
-    channel.close();
-
-    callEndedIntentionallyRef.current = false;
-    
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true } });
-        mediaStreamRef.current = stream;
-    } catch (error) {
-        console.error("FATAL: Could not acquire microphone. Aborting call.", error);
-        await endCall({ navigateToChat: false });
-        return;
-    }
-
-    callStartTimeRef.current = Date.now();
-    setActiveCallSessionId(sessionId);
-    activeCallSessionIdRef.current = sessionId;
-    setActivePersona(persona as Persona);
-    setIsPipViewActive(false);
-    setConnectionStatus('connecting');
-  
-    try {
-      await updateSessionType(sessionId, 'voice');
-      const result: any = await startCallLog({ sessionId, persona });
-      if (result?.data?.callId) activeCallLogIdRef.current = result.data.callId;
-    } catch (err) { console.warn('startCallLog failed (non-blocking)', err); }
-  
-    setElapsedTime(0);
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    timerIntervalRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
-  
-    connectToWebSocket(sessionId, persona as Persona);
-    const { navigate = true } = options || {};
-    if (navigate && pathname !== '/voice') {
-      router.push(`/voice?sessionId=${sessionId}&persona=${persona}`);
-    }
-
-  }, [providerId, connectToWebSocket, updateSessionType, isCallActive, endCall]);
-
-  const toggleMute = useCallback(() => setIsMuted(p => !p), []);
-
+  // --- Final Context Value ---
   const value = useMemo(() => ({ 
     isCallActive, connectionStatus, isPipViewActive, setIsPipViewActive, 
     activeCallSessionId, activePersona, isMuted, startCall, endCall, 

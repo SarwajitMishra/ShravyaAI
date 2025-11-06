@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, Suspense } from 'react';
+import { Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Mic, PhoneOff, MicOff, Volume2, Loader2, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { useCall } from '@/components/providers/call-provider';
+import { VoiceCallInitializer } from '@/components/logic/VoiceCallInitializer';
 
 function formatElapsedTime(seconds: number) {
     const minutes = Math.floor(seconds / 60);
@@ -13,30 +13,6 @@ function formatElapsedTime(seconds: number) {
     const paddedMinutes = String(minutes).padStart(2, '0');
     const paddedSeconds = String(remainingSeconds).padStart(2, '0');
     return `${paddedMinutes}:${paddedSeconds}`;
-}
-
-// This component uses useSearchParams and MUST be wrapped in Suspense.
-// Its only job is to parse the URL and initiate the call.
-function VoiceCallInitializer() {
-    const { startCall, activeCallSessionId } = useCall();
-    const router = useRouter();
-    const searchParams = useSearchParams();
-
-    useEffect(() => {
-        const sessionId = searchParams?.get('sessionId');
-        const persona = searchParams?.get('persona');
-
-        if (sessionId && persona) {
-            if (activeCallSessionId !== sessionId) {
-                startCall(sessionId, persona, { navigate: false }); // Voice page handles its own existence.
-            }
-        } else {
-            console.error("FATAL - No sessionId or persona found in URL. Redirecting to /chat.");
-            router.push('/chat');
-        }
-    }, [searchParams, startCall, router, activeCallSessionId]);
-
-    return null;
 }
 
 // This component contains the actual UI for the voice page.
@@ -109,7 +85,8 @@ function VoicePageContent() {
                 <Button variant="secondary" size="lg" className="rounded-full p-4" disabled={!isCallActive}>
                     <Volume2 className="h-6 w-6" />
                 </Button>
-                <Button onClick={() => endCall({ navigateToChat: false })} variant="destructive" size="lg" className="rounded-full p-6 scale-110">
+                {/* CORRECTED: endCall now takes no arguments */}
+                <Button onClick={endCall} variant="destructive" size="lg" className="rounded-full p-6 scale-110">
                     <PhoneOff className="h-8 w-8" />
                 </Button>
                 <Button variant={isMuted ? "outline" : "secondary"} size="lg" className="rounded-full p-4" onClick={toggleMute} disabled={!isCallActive}>
@@ -123,6 +100,7 @@ function VoicePageContent() {
 export default function VoicePage() {
     return (
         <Suspense fallback={<div className="flex h-screen w-full bg-background items-center justify-center"><Loader2 className="animate-spin h-10 w-10" /></div>}>
+            {/* CORRECTED: Using the single, correct initializer component */}
             <VoiceCallInitializer />
             <VoicePageContent />
         </Suspense>

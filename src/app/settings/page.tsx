@@ -9,15 +9,26 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/components/providers/auth-provider';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useRouter } from 'next/navigation';
+import { initializeApp } from 'firebase/app';
 
-const functions = getFunctions();
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+const app = initializeApp(firebaseConfig);
+const functions = getFunctions(app, 'us-central1');
+
 const deleteAccountData = httpsCallable(functions, 'deleteAccountData');
+const sessionLogout = httpsCallable(functions, 'sessionLogout');
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
@@ -27,11 +38,21 @@ export default function SettingsPage() {
     document.body.dataset.accentColor = accentColor;
   }, [accentColor]);
 
+  const handleLogout = async () => {
+    try {
+      await sessionLogout();
+      toast({ title: 'Logged Out', description: 'You have been successfully logged out.' });
+      router.push('/');
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to log out.' });
+    }
+  };
+
   const handleDeleteData = async () => {
     try {
       await deleteAccountData();
       toast({ title: 'Data Deleted', description: 'Your account data has been successfully deleted.' });
-      await logout();
+      await handleLogout();
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete account data.' });
     }
@@ -93,8 +114,9 @@ export default function SettingsPage() {
             </AlertDialog>
           </div>
         </CardContent>
-        <CardFooter>
-          <Button variant="outline" className="w-full" onClick={() => router.push('/chat')}>Back</Button>
+        <CardFooter className="flex-col gap-2">
+          <Button variant="outline" className="w-full" onClick={handleLogout}>Logout</Button>
+          <Button variant="outline" className="w-full" onClick={() => router.push('/chat')}>Back to Chat</Button>
         </CardFooter>
       </Card>
     </div>

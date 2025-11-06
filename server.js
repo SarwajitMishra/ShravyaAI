@@ -1,8 +1,7 @@
+
 // server.js
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-
-const app = express();
 
 // --- Get target from environment variable ---
 const targetUrl = process.env.WSS_TARGET_URL;
@@ -39,6 +38,8 @@ const options = {
 };
 
 const wsProxy = createProxyMiddleware(options);
+
+const app = express();
 
 app.use('/websocket', wsProxy);
 

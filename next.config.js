@@ -1,13 +1,13 @@
-
 // @ts-check
 
 // The URL for the WebSocket proxy, used for the live voice call feature.
-const wsProxyUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/websocket';
+const isProduction = process.env.NODE_ENV === 'production';
+const wsProxyUrl = isProduction 
+  ? process.env.NEXT_PUBLIC_WS_URL
+  : 'ws://localhost:8080/websocket';
 
 // The hostname is extracted to be used in the Content Security Policy.
-// This allows the client-side code to connect to the WebSocket server.
-const wsProxyHost = new URL(wsProxyUrl).hostname;
-
+const wsProxyHost = wsProxyUrl ? new URL(wsProxyUrl).hostname : '';
 
 // Base security headers. These are applied in all environments.
 const securityHeaders = [
@@ -22,7 +22,7 @@ const securityHeaders = [
       // Allow images from self, data URIs, and any HTTPS source.
       "img-src 'self' data: https:",
       // Allow WebSocket and HTTPS connections to self and the designated proxy host.
-      `connect-src 'self' https: ${wsProxyUrl.startsWith('ws://') ? wsProxyUrl : 'wss://' + wsProxyHost}`,
+      `connect-src 'self' https: ${wsProxyUrl ? (wsProxyUrl.startsWith('ws://') ? wsProxyUrl : 'wss://' + wsProxyHost) : ''}`,
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'",

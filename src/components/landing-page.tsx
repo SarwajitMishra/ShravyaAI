@@ -7,16 +7,36 @@ import { BrandIcon } from '@/components/brand-icon';
 import { MessageSquare, Users, Palette, UploadCloud, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useEffect } from 'react';
-import { useAuth } from '@/components/providers/auth-provider';
-import { useRouter } from 'next/navigation';
+import { initializeApp } from 'firebase/app';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+const app = initializeApp(firebaseConfig);
+const functions = getFunctions(app, 'us-central1');
 
 export function LandingPage() {
-  const { createGuestSession } = useAuth();
-  const router = useRouter();
+  const handleLogin = () => {
+    const redirectUrl = window.location.origin + '/chat';
+    const authPortalUrl = `https://auth.shravyaworld.org/login?redirectUrl=${encodeURIComponent(redirectUrl)}`;
+    window.location.href = authPortalUrl;
+  };
 
-  const handleGuestContinue = async () => {
-    await createGuestSession();
-    router.push('/chat');
+  const handleLogout = async () => {
+    try {
+      const sessionLogout = httpsCallable(functions, 'sessionLogout');
+      await sessionLogout();
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   const featureVariants = {
@@ -25,8 +45,6 @@ export function LandingPage() {
   };
 
   useEffect(() => {
-    // Add a custom shadow utility in your globals.css or here in a style tag
-    // For simplicity, adding it here. In a real app, this would be in a CSS file.
     const styles = `
       .shadow-soft {
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
@@ -52,11 +70,11 @@ export function LandingPage() {
             <span className="text-xl font-bold font-headline text-secondary-teal">Shravya AI</span>
           </Link>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" asChild>
-              <Link href="/login">Login</Link>
+            <Button variant="ghost" onClick={handleLogin}>
+              Login
             </Button>
-            <Button asChild className="bg-primary-saffron hover:bg-primary-saffron/90">
-              <Link href="/signup">Sign Up</Link>
+            <Button onClick={handleLogout} className="bg-primary-saffron hover:bg-primary-saffron/90">
+              Logout
             </Button>
           </div>
         </div>
@@ -79,8 +97,8 @@ export function LandingPage() {
             Your personal AI companion that understands Romanized Indian languages and cultural nuances.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-4">
-            <Button size="lg" className="bg-primary-saffron hover:bg-primary-saffron/90" onClick={handleGuestContinue}>
-                Continue as Guest
+            <Button size="lg" className="bg-primary-saffron hover:bg-primary-saffron/90" onClick={handleLogin}>
+                Start Chatting
                 <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
             <Button asChild size="lg" variant="outline" className="border-secondary-teal text-secondary-teal hover:bg-secondary-teal/10 hover:text-secondary-teal">

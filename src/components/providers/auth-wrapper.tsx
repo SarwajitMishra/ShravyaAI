@@ -1,60 +1,34 @@
 
 "use client";
 
-import { useAuth } from "@/components/providers/auth-provider";
-import { useRouter, usePathname } from "next/navigation";
-import { useEffect } from "react";
-import { ThinkingBubble } from "@/components/thinking-bubble";
+import { useAuth } from "./auth-provider";
+import { usePathname } from 'next/navigation';
+import { ThinkingBubble } from '@/components/thinking-bubble';
 
-const publicRoutes = ["/", "/login", "/signup", "/phone-auth"];
+const publicRoutes = ['/']; // Add any other public routes here
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const router = useRouter();
   const pathname = usePathname();
 
-  useEffect(() => {
-    if (loading) return;
+  const isPublicRoute = publicRoutes.includes(pathname);
 
-    if (pathname === null) {
-      // Handle the case where pathname is null, maybe return or redirect
-      return;
-    }
-
-    const isPublicRoute = publicRoutes.includes(pathname);
-    const isRegisteredUser = user && !user.isAnonymous;
-
-    // If a registered user is on a public route (e.g., landing, login),
-    // redirect them to the chat.
-    if (isRegisteredUser && isPublicRoute) {
-      router.push("/chat");
-      return;
-    }
-
-    // If a user (guest or registered) is on a protected route,
-    // they are in the right place.
-    if (user && !isPublicRoute) {
-      return;
-    }
-
-    // If there is NO user at all and they are on a PROTECTED route,
-    // send them to the landing page.
-    if (!user && !isPublicRoute) {
-      router.push("/");
-      return;
-    }
-
-  }, [user, loading, router, pathname]);
-
-  // To prevent flicker, show a loading bubble while auth state resolves,
-  // or if a non-user is trying to access a protected page before redirect.
-  if (loading && !user) {
+  if (loading) {
     return (
-      <div className="flex h-screen w-full bg-background items-center justify-center">
+      <div className="flex h-screen w-full items-center justify-center">
         <ThinkingBubble />
       </div>
     );
   }
+
+  // If it's a public route, just show the content
+  if (isPublicRoute && !user) {
+      return <>{children}</>;
+  }
+  
+  // If we are on a protected route and not logged in, you might want to redirect
+  // For now, we're handling guest access, so we just show the content
+  // A redirect could be added here if needed for certain pages.
 
   return <>{children}</>;
 }

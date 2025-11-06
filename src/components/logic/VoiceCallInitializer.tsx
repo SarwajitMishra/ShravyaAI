@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useCall } from '@/components/providers/call-provider';
+import { type Persona } from '@/lib/types'; // <-- IMPORT ADDED HERE
 
 /**
  * This component is responsible for initiating a voice call based on URL parameters.
@@ -27,7 +28,7 @@ export function VoiceCallInitializer() {
     if (sessionId && persona) {
       console.log(`[VoiceCallInitializer] Found session params. Attempting to start call for session: ${sessionId}`);
       calledRef.current = true; // Mark that we've attempted to start the call
-      startCall(sessionId, persona);
+      startCall(sessionId, persona as Persona); 
     }
   }, [searchParams, startCall, isCallActive]);
 
