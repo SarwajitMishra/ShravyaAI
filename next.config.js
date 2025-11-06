@@ -2,9 +2,7 @@
 
 // The URL for the WebSocket proxy, used for the live voice call feature.
 const isProduction = process.env.NODE_ENV === 'production';
-const wsProxyUrl = isProduction 
-  ? process.env.NEXT_PUBLIC_WS_URL
-  : 'ws://localhost:8080/websocket';
+const wsProxyUrl = process.env.NEXT_PUBLIC_WS_URL;
 
 // The hostname is extracted to be used in the Content Security Policy.
 const wsProxyHost = wsProxyUrl ? new URL(wsProxyUrl).hostname : '';
@@ -55,6 +53,10 @@ const nextConfig = {
         pathname: '/**',
       },
     ],
+  },
+  webpack(config) {
+    config.experiments = { ...config.experiments, asyncWebAssembly: true };
+    return config;
   },
   async headers() {
     // Apply the same security headers across all environments.
